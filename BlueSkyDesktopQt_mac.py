@@ -2645,6 +2645,24 @@ class App(QMainWindow):
             "company_name":fd["company"],"invoice_date":fd["date"],"plate":plate,"vin":vin,
             "year":yr,"make":mk,"model":md,"amount_cents":total_cents,"payment_method":fd["pay"],
             "status":status,"notes":fd["notes"],"is_estimate":1 if is_estimate else 0})
+        for d in self._lines_data:
+            enqueue(self.db,"invoice_item","upsert",{
+                "item_id":    d["remote_item_id"],
+                "invoice_id": iid,
+                "name":       d["service"],
+                "service":    d["service"],
+                "vin":        d["vin"],
+                "plate":      d["plate"],
+                "odometer":   d["odometer"],
+                "year":       d["year"],
+                "make":       d["make"],
+                "model":      d["model"],
+                "qty":        1,
+                "unit_price_cents": int(round(d["price"] * 100)),
+                "discount_cents":   int(round(d["discount"] * 100)),
+                "result":     d["result"],
+                "cert":       d["cert"],
+            })
 
         # Generate PDF and show viewer
         pdf = build_invoice_pdf_path(self.inv_dir,fd["date"],company=fd["company"],
