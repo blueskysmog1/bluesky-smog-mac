@@ -595,10 +595,19 @@ class SyncEngine:
             "INSERT OR IGNORE INTO account_history(company_name,entry_date,type,amount,note,invoice_id,payment_number,payment_id,partial_json) "
             "VALUES(?,?,?,?,?,?,?,?,?)",
             (company_name,entry_date,"payment",amount,note,invoice_id,payment_number,payment_id,partial_json))
-        conn.execute("UPDATE accounts SET total_owed=MAX(0,total_owed-?),updated_at=? WHERE company_name=?",
-                     (amount,now_iso(),company_name))
+        entry_type=p.get("type","payment")
+        conn.execute(
+            "INSERT OR IGNORE INTO accounts(company_name,total_owed,updated_at) VALUES(?,0,?)",
+            (company_name,now_iso()))
+        if entry_type == "charge":
+            conn.execute("UPDATE accounts SET total_owed=total_owed+?,updated_at=? WHERE company_name=?",
+                         (amount,now_iso(),company_name))
+            slog(f"[Charge] merged invoice charge for {company_name} ${amount:.2f}")
+        else:
+            conn.execute("UPDATE accounts SET total_owed=MAX(0,total_owed-?),updated_at=? WHERE company_name=?",
+                         (amount,now_iso(),company_name))
+            slog(f"[Payment] merged {payment_number} for {company_name} ${amount:.2f}")
         conn.commit()
-        slog(f"[Payment] merged {payment_number} for {company_name} ${amount:.2f}")
 
     def _merge_payment_delete(self,conn,p):
         """Apply a remote account_payment delete to local account_history."""
