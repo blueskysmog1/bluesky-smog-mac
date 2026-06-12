@@ -23,8 +23,22 @@ python3 -m PyInstaller --windowed --name "BlueSkyDesktop" --icon BlueSkyDesktop.
   --hidden-import reportlab.graphics.barcode.ecc200datamatrix \
   BlueSkyDesktopQt_mac.py
 
-echo "Signing..."
-codesign --deep --force --options runtime --sign "$SIGN_ID" dist/BlueSkyDesktop.app
+echo "Signing all binaries..."
+# Sign all frameworks and dylibs first, then the app bundle
+find dist/BlueSkyDesktop.app -name "*.dylib" -o -name "*.so" -o -name "*.framework" | while read f; do
+  codesign --force --options runtime --sign "$SIGN_ID" "$f" 2>/dev/null
+done
+find dist/BlueSkyDesktop.app/Contents/Frameworks -type f -perm +111 | while read f; do
+  codesign --force --options runtime --sign "$SIGN_ID" "$f" 2>/dev/null
+done
+find dist/BlueSkyDesktop.app/Contents/Resources -type f -perm +111 | while read f; do
+  codesign --force --options runtime --sign "$SIGN_ID" "$f" 2>/dev/null
+done
+# Sign the main executable and bundle last
+codesign --force --options runtime --sign "$SIGN_ID" dist/BlueSkyDesktop.app/Contents/MacOS/BlueSkyDesktop
+codesign --force --options runtime --sign "$SIGN_ID" dist/BlueSkyDesktop.app
+echo "Verifying signature..."
+codesign --verify --deep --strict dist/BlueSkyDesktop.app && echo "Signature valid"
 
 echo "Creating DMG..."
 create-dmg \
