@@ -3,11 +3,11 @@ Blue Sky Smog - Desktop App  (PyQt6 rewrite)
 Requires: pip install pyqt6 requests reportlab pymupdf
 """
 
-import os, sys, json, uuid, sqlite3, threading, time, re, textwrap, urllib.request
+import os, sys, json, uuid, sqlite3, threading, time, re, textwrap, urllib.request, subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
 
-APP_VERSION = "1.2.9"
+APP_VERSION = "1.2.12"
 _UPDATE_API  = "https://api.github.com/repos/blueskysmog1/bluesky-smog-mac/releases/latest"
 _DOWNLOAD_URL = "https://github.com/blueskysmog1/bluesky-smog-mac/releases/latest/download/BlueSkyDesktop.dmg"
 
@@ -25,11 +25,11 @@ from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene,
 )
 from PyQt6.QtCore import (
-    Qt, QTimer, QThread, pyqtSignal, QDate, QPoint, QRect, QRectF, QObject,
+    Qt, QTimer, QThread, pyqtSignal, QDate, QPoint, QRect, QRectF, QObject, QUrl,
 )
 from PyQt6.QtGui import (
     QFont, QColor, QIcon, QPixmap, QBrush, QAction, QImage,
-    QPainter, QPen, QPalette, QCursor,
+    QPainter, QPen, QPalette, QCursor, QDesktopServices,
 )
 
 try:
@@ -246,8 +246,8 @@ QMessageBox {{ background: {CLR_CARD}; }}
 
 DEFAULT_BUSINESS = {
     "name": "", "address_line1": "", "address_line2": "",
-    "phone": "", "email": "", "ard": "", "card_fee": 5.00,
-    "logo_path": "",
+    "phone": "", "email": "", "website": "", "ard": "", "card_fee": 5.00,
+    "logo_path": "", "qr_path": "",
     "invoice_notice": (
         "I authorize {business_name} to perform the indicated services. "
         "I am responsible for removing all valuable property from my vehicle prior to service. "
@@ -392,6 +392,8 @@ def migrate_db():
         c.execute("ALTER TABLE vehicles ADD COLUMN test_interval_days INTEGER")
     if "next_test_due" not in veh_cols:
         c.execute("ALTER TABLE vehicles ADD COLUMN next_test_due TEXT NOT NULL DEFAULT ''")
+    if "deleted" not in veh_cols:
+        c.execute("ALTER TABLE vehicles ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
     # Migrate data from old column names used in v1.1.x (service_interval_days / next_due)
     veh_cols = {row[1] for row in c.execute("PRAGMA table_info(vehicles)").fetchall()}
     if "service_interval_days" in veh_cols:
@@ -1025,10 +1027,8 @@ def print_pdf(pdf_path, printer_name="", copies=1, parent_widget=None, silent=Fa
             if sys.platform == "win32":
                 os.startfile(pdf_path, "print")
             elif sys.platform == "darwin":
-                import subprocess
                 subprocess.Popen(["open", pdf_path])
             else:
-                import subprocess
                 subprocess.Popen(["xdg-open", pdf_path])
         except Exception: pass
 
@@ -1067,21 +1067,51 @@ def _best_vehicle_for_invoice(conn,inv):
     return None
 
 def draw_header(c, biz, title, subtitle=""):
-    w,h=LETTER; logo_path=(biz.get("logo_path")or"").strip(); biz_x=36
+    w, h = LETTER
+    # ── Logo (left) ──────────────────────────────────────────────────────────
+    logo_path = (biz.get("logo_path") or "").strip(); biz_x = 36
     if logo_path and os.path.exists(logo_path):
         try:
-            c.drawImage(ImageReader(logo_path),36,h-100,width=82,height=72,preserveAspectRatio=True,mask="auto"); biz_x=126
+            c.drawImage(ImageReader(logo_path), 36, h-100, width=82, height=72,
+                        preserveAspectRatio=True)
+            biz_x = 126
+        except Exception:
+            try:
+                c.drawImage(ImageReader(logo_path), 36, h-100, width=82, height=72,
+                            preserveAspectRatio=True, mask="auto")
+                biz_x = 126
+            except Exception: pass
+    # ── Business info (left) ─────────────────────────────────────────────────
+    c.setFillColor(colors.black); c.setFont("Helvetica-Bold", 14)
+    c.drawString(biz_x, h-28, biz.get("name", "BLUE SKY SMOG"))
+    c.setFont("Helvetica", 9); info_y = h-43
+    email   = (biz.get("email")   or "").strip()
+    website = (biz.get("website") or "").strip()
+    for line in filter(None, [
+        biz.get("address_line1", ""),
+        biz.get("address_line2", ""),
+        f"Phone: {biz.get('phone','')}" if biz.get("phone") else "",
+        f"Email: {email}"   if email   else "",
+        f"Web:   {website}" if website else "",
+        f"ARD #: {biz.get('ard','')}" if biz.get("ard") else "",
+    ]):
+        c.drawString(biz_x, info_y, str(line)); info_y -= 12
+    # ── QR code (right) ──────────────────────────────────────────────────────
+    has_qr = False
+    qr_path = (biz.get("qr_path") or "").strip()
+    if qr_path and os.path.exists(qr_path):
+        try:
+            c.drawImage(ImageReader(qr_path), w-108, h-100, width=68, height=68,
+                        preserveAspectRatio=True)
+            has_qr = True
         except Exception: pass
-    c.setFillColor(colors.black); c.setFont("Helvetica-Bold",14)
-    c.drawString(biz_x,h-28,biz.get("name","BLUE SKY SMOG")); c.setFont("Helvetica",9); info_y=h-43
-    for line in filter(None,[biz.get("address_line1",""),biz.get("address_line2",""),
-                              f"Phone: {biz.get('phone','')}" if biz.get("phone") else "",
-                              f"ARD #: {biz.get('ard','')}" if biz.get("ard") else ""]):
-        c.drawString(biz_x,info_y,str(line)); info_y-=12
-    c.setFont("Helvetica-Bold",15); c.drawRightString(w-36,h-28,title)
-    if subtitle: c.setFont("Helvetica",9); c.drawRightString(w-36,h-44,subtitle)
-    c.setStrokeColor(colors.HexColor("#0097A7")); c.setLineWidth(1.5); c.line(36,h-108,w-36,h-108)
+    # ── Title (right) ────────────────────────────────────────────────────────
+    title_x = w-116 if has_qr else w-36
+    c.setFont("Helvetica-Bold", 15); c.drawRightString(title_x, h-28, title)
+    if subtitle: c.setFont("Helvetica", 9); c.drawRightString(title_x, h-44, subtitle)
+    c.setStrokeColor(colors.HexColor("#0097A7")); c.setLineWidth(1.5); c.line(36, h-108, w-36, h-108)
     c.setLineWidth(1); c.setStrokeColor(colors.black)
+    return has_qr
 
 def generate_invoice_pdf(invoice_id, conn, out_path):
     inv=conn.execute("SELECT * FROM invoices WHERE invoice_id=?",(invoice_id,)).fetchone()
@@ -1095,10 +1125,11 @@ def generate_invoice_pdf(invoice_id, conn, out_path):
     inv_num=inv["invoice_number"]or"PENDING"
     FS_BODY=9; FS_LABEL=9; FS_BOLD=10; FS_TOTAL=11; FS_GTOTAL=13; FS_NOTICE=5.5; LINE_H=13; BARCODE_RESERVE=52
     def page_header(page_title=None):
-        draw_header(c,biz,page_title or title,"")
+        has_qr = draw_header(c,biz,page_title or title,"")
+        date_x = w-116 if has_qr else w-40
         c.setFont("Helvetica",FS_LABEL)
         c.drawRightString(w-170,h-58,f"{title.title()} #: {inv_num}")
-        c.drawRightString(w-40,h-58,f"Date: {inv['invoice_date']}")
+        c.drawRightString(date_x,h-58,f"Date: {inv['invoice_date']}")
     page_header(); y=h-125
     c.setFont("Helvetica-Bold",FS_BOLD+2); c.drawString(40,y,"Bill To:"); x=160
     c.setFont("Helvetica-Bold",FS_BOLD)
@@ -1725,16 +1756,14 @@ class LoginDialog(QDialog):
         lay.addWidget(sign_btn)
         self._pass_e.returnPressed.connect(self._do_login)
 
+        fp_lbl = QLabel('<a href="#">Forgot Password?</a>')
+        fp_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fp_lbl.setOpenExternalLinks(False)
+        fp_lbl.linkActivated.connect(lambda _: self._do_forgot_password())
+        lay.addWidget(fp_lbl)
+
         reg_btn = btn("Create Account", "secondary"); reg_btn.clicked.connect(self._do_register)
         lay.addWidget(reg_btn)
-
-        sub_btn = btn("Subscribe - $40/month", "primary")
-        sub_btn.clicked.connect(self._do_subscribe)
-        lay.addWidget(sub_btn)
-
-        portal_btn = btn("Manage Subscription", "secondary")
-        portal_btn.clicked.connect(self._do_portal)
-        lay.addWidget(portal_btn)
 
     def _do_login(self):
         u = self._user_e.text().strip(); p = self._pass_e.text().strip()
@@ -1749,6 +1778,88 @@ class LoginDialog(QDialog):
             self._token = token; self.accept()
         except Exception as e:
             self._err_lbl.setText(str(e))
+
+    def _do_forgot_password(self):
+        dlg = QDialog(self); dlg.setWindowTitle("Reset Password"); dlg.setFixedWidth(380)
+        lay = QVBoxLayout(dlg); lay.setSpacing(10); lay.setContentsMargins(24,24,24,24)
+        hdr = QLabel("Reset Password"); hdr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hdr.setStyleSheet(f"color:{PRIMARY}; font-size:14pt; font-weight:bold;")
+        lay.addWidget(hdr)
+        info = QLabel("Enter your username and we'll send a 6-digit code to the email on your account.")
+        info.setWordWrap(True); info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        info.setStyleSheet("color:#6B7280; font-size:9pt;"); lay.addWidget(info)
+
+        form1 = QFormLayout(); form1.setSpacing(8)
+        usr_e = QLineEdit(self._user_e.text().strip())
+        form1.addRow("Username:", usr_e); lay.addLayout(form1)
+
+        err_lbl = QLabel(""); err_lbl.setStyleSheet("color:red;")
+        err_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter); err_lbl.setWordWrap(True)
+        lay.addWidget(err_lbl)
+
+        # Step 2 widgets (hidden until code is sent)
+        step2 = QWidget(); s2l = QFormLayout(step2); s2l.setSpacing(8)
+        code_e  = QLineEdit(); code_e.setPlaceholderText("6-digit code from email"); code_e.setMaxLength(6)
+        newpw_e = QLineEdit(); newpw_e.setEchoMode(QLineEdit.EchoMode.Password); newpw_e.setPlaceholderText("New password (8+ chars)")
+        conpw_e = QLineEdit(); conpw_e.setEchoMode(QLineEdit.EchoMode.Password); conpw_e.setPlaceholderText("Confirm new password")
+        s2l.addRow("Code:", code_e); s2l.addRow("New Password:", newpw_e); s2l.addRow("Confirm:", conpw_e)
+        step2.setVisible(False); lay.addWidget(step2)
+
+        send_btn  = btn("Send Code", "primary"); lay.addWidget(send_btn)
+        reset_btn = btn("Reset Password", "primary"); reset_btn.setVisible(False); lay.addWidget(reset_btn)
+        back_btn  = btn("Back", "secondary"); back_btn.setVisible(False); lay.addWidget(back_btn)
+        close_btn = btn("Close", "secondary"); lay.addWidget(close_btn)
+        close_btn.clicked.connect(dlg.reject)
+
+        def _send():
+            u = usr_e.text().strip().lower()
+            if not u: err_lbl.setText("Enter your username."); return
+            err_lbl.setText("Sending…"); QApplication.processEvents()
+            try:
+                r = requests.post(f"{API_BASE}/v1/auth/forgot_password",
+                                  json={"username": u}, timeout=10)
+                if r.status_code == 200:
+                    err_lbl.setStyleSheet("color:green;")
+                    err_lbl.setText("Code sent! Check your email.")
+                    usr_e.setEnabled(False); step2.setVisible(True)
+                    send_btn.setVisible(False); reset_btn.setVisible(True); back_btn.setVisible(True)
+                elif r.status_code == 404:
+                    err_lbl.setStyleSheet("color:red;")
+                    err_lbl.setText("No account found with that username, or no email on file.")
+                else:
+                    err_lbl.setStyleSheet("color:red;")
+                    err_lbl.setText(f"Error: {r.status_code}")
+            except Exception as e:
+                err_lbl.setStyleSheet("color:red;"); err_lbl.setText(str(e))
+
+        def _reset():
+            u = usr_e.text().strip().lower()
+            code = code_e.text().strip(); newpw = newpw_e.text(); con = conpw_e.text()
+            if len(code) != 6: err_lbl.setStyleSheet("color:red;"); err_lbl.setText("Enter the 6-digit code."); return
+            if len(newpw) < 8: err_lbl.setStyleSheet("color:red;"); err_lbl.setText("Password must be at least 8 characters."); return
+            if newpw != con: err_lbl.setStyleSheet("color:red;"); err_lbl.setText("Passwords do not match."); return
+            err_lbl.setText("Resetting…"); QApplication.processEvents()
+            try:
+                r = requests.post(f"{API_BASE}/v1/auth/verify_reset_code",
+                                  json={"username": u, "code": code, "new_password": newpw}, timeout=10)
+                if r.status_code == 200:
+                    QMessageBox.information(dlg, "Password Reset",
+                        "Your password has been reset. Sign in with your new password.")
+                    dlg.accept()
+                else:
+                    err_lbl.setStyleSheet("color:red;")
+                    err_lbl.setText("Invalid or expired code. Request a new one.")
+            except Exception as e:
+                err_lbl.setStyleSheet("color:red;"); err_lbl.setText(str(e))
+
+        def _back():
+            step2.setVisible(False); send_btn.setVisible(True)
+            reset_btn.setVisible(False); back_btn.setVisible(False)
+            usr_e.setEnabled(True)
+            err_lbl.setStyleSheet("color:red;"); err_lbl.setText("")
+
+        send_btn.clicked.connect(_send); reset_btn.clicked.connect(_reset); back_btn.clicked.connect(_back)
+        dlg.exec()
 
     def _do_register(self):
         dlg = QDialog(self); dlg.setWindowTitle("Create Account"); dlg.setFixedWidth(380)
@@ -1967,7 +2078,7 @@ class PdfViewerDialog(QDialog):
         open_btn  = btn("Open in System Viewer", "secondary")
         open_btn.clicked.connect(lambda: (
             os.startfile(self.pdf_path) if sys.platform == "win32"
-            else __import__('subprocess').Popen(["open", self.pdf_path])
+            else subprocess.Popen(["open", self.pdf_path])
         ))
         tb.addWidget(print_btn); tb.addWidget(open_btn); tb.addStretch()
         lay.addLayout(tb)
@@ -2117,6 +2228,7 @@ class App(QMainWindow):
         self._build_estimate_entry_screen()
         self._build_account_setup_screen()
         self._build_reports_screen()
+        self._build_vehicles_due_screen()
         self._build_settings_screen()
         self._build_customers_screen()
         if self._is_master:
@@ -2297,6 +2409,7 @@ class App(QMainWindow):
         ns("MANAGE")
         nb("estimate_entry", "  New invoice", self._new_estimate_action)
         nb("reports",        "  Reports",     lambda: self.show_screen("reports"))
+        nb("vehicles_due",   "  Vehicles Due",lambda: self.show_screen("vehicles_due"))
         nb("account_setup",  "  Accounts",   lambda: self.show_screen("account_setup"))
         lay.addStretch()
 
@@ -3710,9 +3823,12 @@ class App(QMainWindow):
             key = d["vin"] or d["plate"]
             if key in _seen: continue; _seen.add(key)
             vid = upsert_vehicle(self.db,cid,d["vin"],d["plate"],d["make"],d["model"],d["year"])
+            v_row = self.db.execute(
+                "SELECT service_type FROM vehicles WHERE vehicle_id=?", (vid,)).fetchone()
+            v_svc = (v_row["service_type"] or "") if v_row else ""
             enqueue(self.db,"vehicle","upsert",{"vehicle_id":vid,"customer_id":cid,"vin":d["vin"],
                 "plate":d["plate"],"make":d["make"],"model":d["model"],"year":d["year"],
-                "odometer":d["odometer"],"service_type":""})
+                "odometer":d["odometer"],"service_type":v_svc})
 
         total_cents = int(sum(d["price"] for d in self._lines_data) * 100)
         status = "ESTIMATE" if is_estimate else ("CHARGE" if fd["pay"]=="CHARGE" else "PAID")
@@ -4611,6 +4727,132 @@ class App(QMainWindow):
     #  SCREEN: REPORTS
     # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
+    def _build_vehicles_due_screen(self):
+        w = QWidget(); self._screens["vehicles_due"] = w
+        lay = QVBoxLayout(w); lay.setContentsMargins(14,12,14,12); lay.setSpacing(8)
+        self._stack.addWidget(w)
+
+        # ── Header row ───────────────────────────────────────────────
+        hdr_row = QHBoxLayout()
+        ttl = QLabel("Vehicles Due"); ttl.setStyleSheet("font-size:15pt; font-weight:700;")
+        hdr_row.addWidget(ttl)
+        hdr_row.addStretch()
+        ref_b = QPushButton("⟳ Refresh"); ref_b.setObjectName("secondary")
+        hdr_row.addWidget(ref_b)
+        lay.addLayout(hdr_row)
+
+        # ── Filter row ───────────────────────────────────────────────
+        filt_row = QHBoxLayout()
+        filt_row.addWidget(QLabel("Show:"))
+        self._vd_cmb = QComboBox()
+        for fk, fl in [("30days","30 Days"),("60days","60 Days"),("90days","90 Days")]:
+            self._vd_cmb.addItem(fl, fk)
+        filt_row.addWidget(self._vd_cmb); filt_row.addStretch()
+        self._vd_summary = QLabel("")
+        self._vd_summary.setStyleSheet(f"color:{PRIMARY}; font-weight:bold;")
+        filt_row.addWidget(self._vd_summary)
+        lay.addLayout(filt_row)
+
+        # ── Table ────────────────────────────────────────────────────
+        self._vd_tbl = QTableWidget(0, 8)
+        self._vd_tbl.setHorizontalHeaderLabels(
+            ["Due Date","Days","Plate","Year","Make / Model","Customer","Email","Reminder"])
+        self._vd_tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._vd_tbl.setAlternatingRowColors(True)
+        self._vd_tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        hh = self._vd_tbl.horizontalHeader()
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+        self._vd_tbl.setColumnWidth(7, 80)
+        lay.addWidget(self._vd_tbl)
+
+        def _populate(fkey):
+            today = datetime.now().date()
+            drop_before = (today - timedelta(days=274)).strftime("%Y-%m-%d")
+            if fkey == '60days':
+                lo, hi = drop_before, (today + timedelta(days=60)).strftime("%Y-%m-%d")
+            elif fkey == '90days':
+                lo, hi = drop_before, (today + timedelta(days=90)).strftime("%Y-%m-%d")
+            else:  # 30days default
+                lo, hi = drop_before, (today + timedelta(days=30)).strftime("%Y-%m-%d")
+
+            rows = self.db.execute("""
+                SELECT v.vehicle_id, v.plate, v.vin, v.year, v.make, v.model,
+                       v.next_test_due, c.first_name, c.last_name, c.company_name,
+                       c.email
+                FROM vehicles v
+                LEFT JOIN customers c ON v.customer_id = c.customer_id
+                WHERE v.deleted = 0 AND v.next_test_due != '' AND v.next_test_due IS NOT NULL
+                  AND v.next_test_due >= ? AND v.next_test_due <= ?
+                ORDER BY v.next_test_due ASC
+            """, (lo, hi)).fetchall()
+
+            self._vd_tbl.setRowCount(0)
+            overdue_ct = 0
+            for vr in rows:
+                due_str = (vr["next_test_due"] or "").strip()
+                try:
+                    due_date = datetime.strptime(due_str, "%Y-%m-%d").date()
+                    days_left = (due_date - today).days
+                    due_display = due_date.strftime("%m/%d/%Y")
+                    days_display = f"{days_left}d" if days_left >= 0 else f"{abs(days_left)}d overdue"
+                    if days_left < 0: overdue_ct += 1
+                except ValueError:
+                    due_display = due_str; days_left = 999; days_display = ""
+
+                mk_mod = " ".join(filter(None, [vr["make"], vr["model"]]))
+                cname  = vr["company_name"] or f"{vr['first_name'] or ''} {vr['last_name'] or ''}".strip()
+                email  = vr["email"] or ""
+
+                r_idx = self._vd_tbl.rowCount(); self._vd_tbl.insertRow(r_idx)
+                for col, val in enumerate([due_display, days_display, vr["plate"] or "",
+                                           str(vr["year"] or ""), mk_mod, cname, email]):
+                    item = QTableWidgetItem(val)
+                    if days_left < 0:
+                        item.setForeground(QColor("#B91C1C"))
+                        if col == 1: item.setFont(QFont("", -1, QFont.Weight.Bold))
+                    elif days_left <= 30:
+                        item.setForeground(QColor("#D97706"))
+                    self._vd_tbl.setItem(r_idx, col, item)
+
+                # Bell reminder button (email only on desktop)
+                bell_b = QPushButton("🔔")
+                bell_b.setToolTip("Send email reminder")
+                bell_b.setFixedWidth(50)
+                bell_b.setStyleSheet("border:none; font-size:14pt;")
+                if email:
+                    veh_label = f"{vr['year'] or ''} {mk_mod}".strip()
+                    subj = f"Your smog check is coming up — {veh_label}"
+                    body = (f"Hi {vr['first_name'] or cname},\n\n"
+                            f"This is a reminder that your {veh_label} "
+                            f"(plate {vr['plate'] or 'N/A'}) is due for a smog check on "
+                            f"{due_display}.\n\nGive us a call to schedule!\n\nBlue Sky Smog")
+                    import urllib.parse as _up
+                    mailto = (f"mailto:{_up.quote(email, safe='@')}"
+                              f"?subject={_up.quote(subj)}"
+                              f"&body={_up.quote(body)}")
+                    bell_b.clicked.connect(
+                        lambda _, url=mailto: (
+                            os.startfile(url) if sys.platform == "win32"
+                            else subprocess.Popen(["open", url])
+                        ))
+                else:
+                    bell_b.setEnabled(False)
+                    bell_b.setToolTip("No email on file")
+                self._vd_tbl.setCellWidget(r_idx, 7, bell_b)
+
+            self._vd_summary.setText(
+                f"Vehicles: {self._vd_tbl.rowCount()}   |   Overdue: {overdue_ct}")
+
+        self._vd_populate = _populate
+        self._vd_cmb.currentIndexChanged.connect(
+            lambda _: _populate(self._vd_cmb.currentData()))
+        ref_b.clicked.connect(lambda: _populate(self._vd_cmb.currentData()))
+
+        # Initial population
+        _populate("all")
+
     def _build_reports_screen(self):
         w = QWidget(); self._screens["reports"] = w
         lay = QVBoxLayout(w); lay.setContentsMargins(0,0,0,0); lay.setSpacing(0)
@@ -4769,6 +5011,10 @@ class App(QMainWindow):
         qr_lay.addLayout(qr_grid)
         body_lay.addWidget(qr_grp)
         body_lay.addStretch()
+
+    def _on_show_vehicles_due(self):
+        self._set_page_title("Vehicles Due")
+        self._vd_populate(self._vd_cmb.currentData() or "all")
 
     def _on_show_reports(self):
         self._set_page_title("Reports")
@@ -5244,19 +5490,19 @@ class App(QMainWindow):
 
             # Filter control row
             _vdue_filters = [
-                ("all",      "All"),
-                ("30days",   "30 Days"),
-                ("3months",  "3 Months"),
+                ("30days",  "30 Days"),
+                ("60days",  "60 Days"),
+                ("90days",  "90 Days"),
             ]
             _filter_row = QHBoxLayout()
             _filter_row.addWidget(QLabel("Show:"))
             _vdue_cmb = QComboBox()
             for _fk, _fl in _vdue_filters:
                 _vdue_cmb.addItem(_fl, _fk)
-            # Default to last used filter; remap old keys to 'all'
+            # Default to last used filter; remap old keys to '30days'
             _valid_keys = {k for k, _ in _vdue_filters}
-            _saved_raw   = getattr(self, '_veh_due_filter', 'all')
-            _saved_filter = _saved_raw if _saved_raw in _valid_keys else 'all'
+            _saved_raw   = getattr(self, '_veh_due_filter', '30days')
+            _saved_filter = _saved_raw if _saved_raw in _valid_keys else '30days'
             _vdue_cmb.setCurrentIndex(next((i for i,(k,_) in enumerate(_vdue_filters) if k==_saved_filter), 0))
             _filter_row.addWidget(_vdue_cmb)
             _filter_row.addStretch()
@@ -5264,14 +5510,12 @@ class App(QMainWindow):
 
             def _vdue_query(fkey):
                 t = _today; d = _drop_before
-                if fkey == '30days':
-                    # All overdue (within 9 months) + due in next 30 days
-                    lo = d; hi = (t + timedelta(days=30)).strftime("%Y-%m-%d")
-                elif fkey == '3months':
-                    # All overdue (within 9 months) + due in next 3 months
+                if fkey == '60days':
+                    lo = d; hi = (t + timedelta(days=60)).strftime("%Y-%m-%d")
+                elif fkey == '90days':
                     lo = d; hi = (t + timedelta(days=90)).strftime("%Y-%m-%d")
-                else:  # all — 9-month cutoff through all future
-                    lo = d; hi = (t + timedelta(days=3650)).strftime("%Y-%m-%d")
+                else:  # 30days default
+                    lo = d; hi = (t + timedelta(days=30)).strftime("%Y-%m-%d")
                 return self.db.execute("""
                     SELECT v.plate, v.vin, v.year, v.make, v.model, v.next_test_due,
                            c.first_name, c.last_name, c.company_name, c.phone
@@ -5462,6 +5706,10 @@ class App(QMainWindow):
             col.addWidget(lw); col.addWidget(e); row2.addLayout(col, 1)
         cl.addLayout(row2)
         self._biz["email"] = QLineEdit(str(biz.get("email",""))); self._biz["email"].setVisible(False)
+        _lw_web = QLabel("Website"); _lw_web.setStyleSheet(f"color:{CLR_TSUB};font-size:9pt;font-weight:600;")
+        self._biz["website"] = QLineEdit(str(biz.get("website","")))
+        self._biz["website"].setPlaceholderText("https://")
+        cl.addWidget(_lw_web); cl.addWidget(self._biz["website"])
         self._biz["card_fee"] = QLineEdit(str(biz.get("card_fee", "5.00")))
         self._biz_notice = QTextEdit(biz.get("invoice_notice","")); self._biz_notice.setVisible(False)
         self._biz_logo = QLineEdit(biz.get("logo_path","")); self._biz_logo.setVisible(False)
@@ -5492,7 +5740,26 @@ class App(QMainWindow):
                 156,156,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)
             self._logo_preview.setPixmap(_pix)
         tl_lay.addWidget(self._logo_preview)
-        _sv_logo = btn("Save Logo","primary"); _sv_logo.clicked.connect(self._save_biz)
+        tl_lay.addSpacing(16)
+        tl_lay.addWidget(QLabel("Payment QR Code (printed top-right of invoice)", font=QFont("Segoe UI",10,QFont.Weight.Bold)))
+        tl_lay.addWidget(QLabel("Upload a QR code image (e.g. Venmo, Zelle, CashApp). Leave blank to hide.",
+                                styleSheet=f"color:{CLR_TSUB};font-size:9pt;"))
+        self._biz_qr = QLineEdit(biz.get("qr_path",""))
+        qr_row = QHBoxLayout(); qr_row.addWidget(self._biz_qr)
+        qr_btn = btn("Browse","secondary"); qr_btn.clicked.connect(self._browse_qr); qr_row.addWidget(qr_btn)
+        tl_lay.addLayout(qr_row)
+        self._qr_preview = QLabel()
+        self._qr_preview.setFixedSize(120,120)
+        self._qr_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._qr_preview.setStyleSheet(
+            f"border:2px dashed {CLR_BORDER};border-radius:8px;background:{CLR_CARD};color:#888;font-size:9pt;")
+        self._qr_preview.setText("No QR selected")
+        existing_qr = biz.get("qr_path","")
+        if existing_qr and os.path.isfile(existing_qr):
+            _qpix = QPixmap(existing_qr).scaled(116,116,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)
+            self._qr_preview.setPixmap(_qpix)
+        tl_lay.addWidget(self._qr_preview)
+        _sv_logo = btn("Save","primary"); _sv_logo.clicked.connect(self._save_biz)
         tl_lay.addWidget(_sv_logo); tl_lay.addStretch()
         self._stt_stack.addWidget(t_logo)  # index 1
 
@@ -5544,14 +5811,13 @@ class App(QMainWindow):
             except Exception: pass
         if not _printers:
             try:
-                import subprocess as _sp
                 if sys.platform == "win32":
-                    _r = _sp.run(["powershell","-Command",
+                    _r = subprocess.run(["powershell","-Command",
                                   "Get-Printer | Select-Object -ExpandProperty Name"],
                                  capture_output=True,text=True,timeout=8)
                     _printers = [p.strip() for p in _r.stdout.strip().splitlines() if p.strip()]
                 else:
-                    _r = _sp.run(["lpstat","-a"], capture_output=True, text=True, timeout=8)
+                    _r = subprocess.run(["lpstat","-a"], capture_output=True, text=True, timeout=8)
                     _printers = [l.split()[0] for l in _r.stdout.strip().splitlines() if l.strip()]
             except Exception: pass
         if sys.platform == "darwin" and "Save as PDF" not in _printers:
@@ -5621,6 +5887,34 @@ class App(QMainWindow):
         fp_b = btn("Force Re-pull","secondary"); fp_b.clicked.connect(_do_fp); btn_h.addWidget(fp_b)
         btn_h.addStretch(); t1_lay.addLayout(btn_h)
         t1_lay.addSpacing(16)
+
+        # ── Account Email ─────────────────────────────────────────────
+        t1_lay.addWidget(QLabel("Account Email", font=QFont("Segoe UI",10,QFont.Weight.Bold)))
+        t1_lay.addWidget(QLabel("Used for password resets via the mobile app.", styleSheet="color:#666;font-size:11px"))
+        self._acct_email = QLineEdit(); self._acct_email.setPlaceholderText("e.g. you@example.com")
+        ae_form = QFormLayout(); ae_form.setSpacing(8)
+        ae_form.addRow("Email:", self._acct_email)
+        t1_lay.addLayout(ae_form)
+        self._ae_msg = QLabel(""); self._ae_msg.setWordWrap(True); t1_lay.addWidget(self._ae_msg)
+        ae_save_b = btn("Save Email","primary"); ae_save_b.clicked.connect(self._update_email_action)
+        t1_lay.addWidget(ae_save_b)
+        t1_lay.addSpacing(16)
+
+        # ── Change Password ───────────────────────────────────────────
+        t1_lay.addWidget(QLabel("Change Password", font=QFont("Segoe UI",10,QFont.Weight.Bold)))
+        self._cp_cur = QLineEdit(); self._cp_cur.setPlaceholderText("Current password"); self._cp_cur.setEchoMode(QLineEdit.EchoMode.Password)
+        self._cp_new = QLineEdit(); self._cp_new.setPlaceholderText("New password (8+ chars)"); self._cp_new.setEchoMode(QLineEdit.EchoMode.Password)
+        self._cp_con = QLineEdit(); self._cp_con.setPlaceholderText("Confirm new password"); self._cp_con.setEchoMode(QLineEdit.EchoMode.Password)
+        cp_form = QFormLayout(); cp_form.setSpacing(8)
+        cp_form.addRow("Current:", self._cp_cur)
+        cp_form.addRow("New:", self._cp_new)
+        cp_form.addRow("Confirm:", self._cp_con)
+        t1_lay.addLayout(cp_form)
+        self._cp_msg = QLabel(""); self._cp_msg.setWordWrap(True); t1_lay.addWidget(self._cp_msg)
+        cp_save_b = btn("Save New Password","primary"); cp_save_b.clicked.connect(self._change_password_action)
+        t1_lay.addWidget(cp_save_b)
+        t1_lay.addSpacing(16)
+
         t1_lay.addWidget(QLabel("── Danger Zone ──", font=QFont("Segoe UI",10,QFont.Weight.Bold)))
         clr_b = btn("Clear Local Database","danger"); clr_b.clicked.connect(self._clear_local_db)
         t1_lay.addWidget(clr_b); t1_lay.addStretch()
@@ -5676,6 +5970,55 @@ class App(QMainWindow):
             save_creds({"username":u,"password":p,"token":token,"company_id":company_id,"company_name":company_name})
             self._s_err.setText(""); QMessageBox.information(self,"Signed In",f"Signed in as {u}")
         except Exception as e: self._s_err.setText(str(e))
+
+    def _update_email_action(self):
+        email = self._acct_email.text().strip().lower()
+        self._ae_msg.setStyleSheet("color:red;")
+        if not email or '@' not in email:
+            self._ae_msg.setText("Enter a valid email address."); return
+        if not requests:
+            self._ae_msg.setText("Network library not available."); return
+        try:
+            r = requests.post(f"{API_BASE}/v1/auth/update_email",
+                              json={"email": email}, headers=_hdrs(), timeout=10)
+            if r.status_code == 200:
+                self._ae_msg.setStyleSheet("color:green;")
+                self._ae_msg.setText("Email updated.")
+            else:
+                self._ae_msg.setText(f"Server error: {r.status_code}")
+        except Exception as e:
+            self._ae_msg.setText(f"Network error: {e}")
+
+    def _change_password_action(self):
+        cur  = self._cp_cur.text().strip()
+        newp = self._cp_new.text().strip()
+        con  = self._cp_con.text().strip()
+        self._cp_msg.setStyleSheet("color:red;")
+        if not cur or not newp or not con:
+            self._cp_msg.setText("All fields are required."); return
+        if len(newp) < 8:
+            self._cp_msg.setText("New password must be at least 8 characters."); return
+        if newp != con:
+            self._cp_msg.setText("New passwords do not match."); return
+        if not requests:
+            self._cp_msg.setText("Network library not available."); return
+        try:
+            hdrs = {**_hdrs(), "x-current-password": cur, "x-new-password": newp}
+            r = requests.post(f"{API_BASE}/v1/auth/change_password", headers=hdrs, timeout=10)
+            if r.status_code == 200:
+                # Update stored credentials so sync keeps working
+                creds = load_creds()
+                creds["password"] = newp
+                save_creds(creds)
+                self._cp_cur.clear(); self._cp_new.clear(); self._cp_con.clear()
+                self._cp_msg.setStyleSheet("color:green;")
+                self._cp_msg.setText("Password changed successfully.")
+            elif r.status_code == 401:
+                self._cp_msg.setText("Current password is incorrect.")
+            else:
+                self._cp_msg.setText(f"Server error: {r.status_code}")
+        except Exception as e:
+            self._cp_msg.setText(f"Network error: {e}")
 
     def _settings_signout(self):
         if QMessageBox.question(self,"Sign Out","Sign out and return to login?",
@@ -5737,10 +6080,21 @@ class App(QMainWindow):
         else:
             self._logo_preview.setText("Could not load image")
 
+    def _browse_qr(self):
+        path,_ = QFileDialog.getOpenFileName(self,"Select QR Code Image","","Images (*.png *.jpg *.jpeg *.bmp *.webp)")
+        if not path: return
+        self._biz_qr.setText(path)
+        pix = QPixmap(path).scaled(116,116,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)
+        if not pix.isNull():
+            self._qr_preview.setPixmap(pix)
+        else:
+            self._qr_preview.setText("Could not load image")
+
     def _save_biz(self):
         biz = {k: e.text() if isinstance(e,QLineEdit) else e.toPlainText() for k,e in self._biz.items()}
         biz["invoice_notice"] = self._biz_notice.toPlainText()
         biz["logo_path"] = self._biz_logo.text()
+        biz["qr_path"]   = self._biz_qr.text() if hasattr(self, "_biz_qr") else ""
         try: biz["card_fee"] = float(biz.get("card_fee",5.0))
         except: biz["card_fee"] = 5.0
         # Compose address_line2 for PDF/legacy compatibility
@@ -6081,21 +6435,43 @@ class App(QMainWindow):
             for i,(_, days) in enumerate(_INTERVAL_OPTS):
                 if days == cur_int: int_cb.setCurrentIndex(i); break
             ef.addRow("Test Frequency:", int_cb)
+            due_edit = QDateEdit()
+            due_edit.setCalendarPopup(True)
+            due_edit.setDisplayFormat("MM/dd/yyyy")
+            cur_due_str = (vrow["next_test_due"] if "next_test_due" in vrow.keys() else None) or ""
+            if cur_due_str:
+                try:
+                    _d = datetime.strptime(cur_due_str, "%Y-%m-%d").date()
+                    due_edit.setDate(QDate(_d.year, _d.month, _d.day))
+                except ValueError:
+                    due_edit.setDate(QDate.currentDate())
+            else:
+                due_edit.setDate(QDate.currentDate())
+            ef.addRow("Next Due Date:", due_edit)
+
+            # Auto-update due date when interval changes
+            def _auto_due(idx):
+                days = _INTERVAL_OPTS[idx][1]
+                if days is None: return
+                last_inv = self.db.execute(
+                    "SELECT invoice_date FROM invoices WHERE customer_id=? AND (plate=? OR vin=?) "
+                    "AND is_estimate=0 ORDER BY invoice_date DESC LIMIT 1",
+                    (cid, vrow["plate"] or "", vrow["vin"] or "")).fetchone()
+                base = datetime.strptime(last_inv["invoice_date"], "%Y-%m-%d") if last_inv else datetime.now()
+                nd = (base + timedelta(days=days)).date()
+                due_edit.setDate(QDate(nd.year, nd.month, nd.day))
+            int_cb.currentIndexChanged.connect(_auto_due)
+
             el.addLayout(ef)
             ebb = QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
             ebb.accepted.connect(ed.accept); ebb.rejected.connect(ed.reject); el.addWidget(ebb)
             if ed.exec() != QDialog.DialogCode.Accepted: return
             new_interval = _INTERVAL_OPTS[int_cb.currentIndex()][1]
-            new_due = vrow["next_test_due"] or ""
-            if new_interval is not None and new_interval != cur_int:
-                last_inv = self.db.execute(
-                    "SELECT invoice_date FROM invoices WHERE customer_id=? AND (plate=? OR vin=?) "
-                    "AND is_estimate=0 ORDER BY invoice_date DESC LIMIT 1",
-                    (cid, vrow["plate"] or "", vrow["vin"] or "")).fetchone()
-                base_date = datetime.strptime(last_inv["invoice_date"], "%Y-%m-%d") if last_inv else datetime.now()
-                new_due = (base_date + timedelta(days=new_interval)).strftime("%Y-%m-%d")
-            elif new_interval is None:
+            if new_interval is None:
                 new_due = ""
+            else:
+                qd = due_edit.date()
+                new_due = f"{qd.year():04d}-{qd.month():02d}-{qd.day():02d}"
             self.db.execute(
                 "UPDATE vehicles SET plate=?,year=?,make=?,model=?,vin=?,test_interval_days=?,next_test_due=?,updated_at=? WHERE vehicle_id=?",
                 (ep.text().strip().upper(), ey.text().strip(), emk.text().strip().upper(),
