@@ -6112,8 +6112,6 @@ class App(QMainWindow):
             "co_email":             biz.get("email",""),
             "co_ard":               biz.get("ard",""),
             "invoice_notice":       biz.get("invoice_notice",""),
-            "card_surcharge_value": str(biz.get("card_fee","")),
-            "card_surcharge_type":  biz.get("card_surcharge_type","percent"),
         })
         self._refresh_sidebar_name()
         # Refresh logo preview if on logo tab
