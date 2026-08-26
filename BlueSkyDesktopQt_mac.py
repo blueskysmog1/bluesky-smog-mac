@@ -7,7 +7,7 @@ import os, sys, json, uuid, sqlite3, threading, time, re, textwrap, urllib.reque
 from pathlib import Path
 from datetime import datetime, timedelta
 
-APP_VERSION = "1.2.12"
+APP_VERSION = "1.2.27"
 _UPDATE_API  = "https://api.github.com/repos/blueskysmog1/bluesky-smog-mac/releases/latest"
 _DOWNLOAD_URL = "https://github.com/blueskysmog1/bluesky-smog-mac/releases/latest/download/BlueSkyDesktop.dmg"
 
@@ -339,6 +339,8 @@ def init_db():
     cols = {row[1] for row in c.execute("PRAGMA table_info(invoice_lines)").fetchall()}
     if "remote_item_id" not in cols:
         c.execute("ALTER TABLE invoice_lines ADD COLUMN remote_item_id TEXT NOT NULL DEFAULT ''")
+    if "truck_number" not in cols:
+        c.execute("ALTER TABLE invoice_lines ADD COLUMN truck_number TEXT NOT NULL DEFAULT ''")
     c.execute("DROP INDEX IF EXISTS idx_invoice_lines_remote_item_id")
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_lines_remote_item_id_partial "
               "ON invoice_lines(remote_item_id) WHERE remote_item_id != ''")
@@ -367,6 +369,11 @@ def migrate_db():
         ("payment_types","TEXT NOT NULL DEFAULT '[]'"),
         ("custom_pricing","TEXT NOT NULL DEFAULT '{}'"),
         ("track_vehicles","INTEGER NOT NULL DEFAULT 0"),
+        ("first_name","TEXT NOT NULL DEFAULT ''"),
+        ("last_name","TEXT NOT NULL DEFAULT ''"),
+        ("is_individual","INTEGER NOT NULL DEFAULT 0"),
+        ("discount_percent","REAL NOT NULL DEFAULT 0"),
+        ("discount_type","TEXT NOT NULL DEFAULT 'PERCENT'"),
     ]:
         if col not in acct_cols:
             c.execute(f"ALTER TABLE accounts ADD COLUMN {col} {defn}")
@@ -394,6 +401,10 @@ def migrate_db():
         c.execute("ALTER TABLE vehicles ADD COLUMN next_test_due TEXT NOT NULL DEFAULT ''")
     if "deleted" not in veh_cols:
         c.execute("ALTER TABLE vehicles ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+    if "service_type" not in veh_cols:
+        c.execute("ALTER TABLE vehicles ADD COLUMN service_type TEXT NOT NULL DEFAULT ''")
+    if "truck_number" not in veh_cols:
+        c.execute("ALTER TABLE vehicles ADD COLUMN truck_number TEXT NOT NULL DEFAULT ''")
     # Migrate data from old column names used in v1.1.x (service_interval_days / next_due)
     veh_cols = {row[1] for row in c.execute("PRAGMA table_info(vehicles)").fetchall()}
     if "service_interval_days" in veh_cols:
@@ -506,28 +517,33 @@ def upsert_customer(conn, first, last, company, phone="", email="",
         conn.execute("INSERT OR IGNORE INTO customers(customer_id,first_name,last_name,company_name,phone,email,address,city,state,zip,discount_percent,discount_type,created_at,updated_at,synced) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                      (customer_id,first,last,company,phone,email,address,city,state,zip_,discount_percent,discount_type,now_iso(),now_iso(),synced))
     conn.commit(); return customer_id
-def upsert_vehicle(conn, customer_id, vin, plate, make, model, year, vehicle_id=None):
+def upsert_vehicle(conn, customer_id, vin, plate, make, model, year, vehicle_id=None, truck_number=""):
+    def _tn(existing):
+        # Preserve existing truck# when new value is blank
+        return truck_number if truck_number else (existing or "")
     if vehicle_id:
-        r = conn.execute("SELECT vehicle_id FROM vehicles WHERE vehicle_id=?", (vehicle_id,)).fetchone()
+        r = conn.execute("SELECT vehicle_id, truck_number FROM vehicles WHERE vehicle_id=?", (vehicle_id,)).fetchone()
         if r:
-            conn.execute("UPDATE vehicles SET customer_id=?,vin=?,plate=?,make=?,model=?,year=?,updated_at=? WHERE vehicle_id=?",
-                         (customer_id,vin,plate,make,model,year,now_iso(),vehicle_id)); conn.commit(); return vehicle_id
+            conn.execute("UPDATE vehicles SET customer_id=?,vin=?,plate=?,make=?,model=?,year=?,truck_number=?,updated_at=? WHERE vehicle_id=?",
+                         (customer_id,vin,plate,make,model,year,_tn(r["truck_number"]),now_iso(),vehicle_id)); conn.commit(); return vehicle_id
         # Not found by vehicle_id — check plate/VIN to avoid creating a duplicate row
         if plate or vin:
-            r2 = conn.execute("SELECT vehicle_id FROM vehicles WHERE (plate!='' AND plate=?) OR (vin!='' AND vin=?)", (plate,vin)).fetchone()
+            r2 = conn.execute("SELECT vehicle_id, truck_number FROM vehicles WHERE (plate!='' AND plate=?) OR (vin!='' AND vin=?)", (plate,vin)).fetchone()
             if r2:
-                conn.execute("UPDATE vehicles SET customer_id=?,vin=?,plate=?,make=?,model=?,year=?,updated_at=? WHERE vehicle_id=?",
-                             (customer_id,vin,plate,make,model,year,now_iso(),r2["vehicle_id"])); conn.commit(); return r2["vehicle_id"]
-        conn.execute("INSERT OR IGNORE INTO vehicles(vehicle_id,customer_id,vin,plate,make,model,year,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-                     (vehicle_id,customer_id,vin,plate,make,model,year,now_iso())); conn.commit(); return vehicle_id
-    r = conn.execute("SELECT vehicle_id FROM vehicles WHERE (plate!='' AND plate=?) OR (vin!='' AND vin=?)", (plate,vin)).fetchone()
+                conn.execute("UPDATE vehicles SET customer_id=?,vin=?,plate=?,make=?,model=?,year=?,truck_number=?,updated_at=? WHERE vehicle_id=?",
+                             (customer_id,vin,plate,make,model,year,_tn(r2["truck_number"]),now_iso(),r2["vehicle_id"])); conn.commit(); return r2["vehicle_id"]
+        conn.execute("INSERT OR IGNORE INTO vehicles(vehicle_id,customer_id,vin,plate,make,model,year,truck_number,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                     (vehicle_id,customer_id,vin,plate,make,model,year,truck_number,now_iso())); conn.commit(); return vehicle_id
+    r = conn.execute("SELECT vehicle_id, truck_number FROM vehicles WHERE (plate!='' AND plate=?) OR (vin!='' AND vin=?)", (plate,vin)).fetchone()
     if r:
-        conn.execute("UPDATE vehicles SET customer_id=?,vin=?,plate=?,make=?,model=?,year=?,updated_at=? WHERE vehicle_id=?",
-                     (customer_id,vin,plate,make,model,year,now_iso(),r["vehicle_id"])); conn.commit(); return r["vehicle_id"]
+        conn.execute("UPDATE vehicles SET customer_id=?,vin=?,plate=?,make=?,model=?,year=?,truck_number=?,updated_at=? WHERE vehicle_id=?",
+                     (customer_id,vin,plate,make,model,year,_tn(r["truck_number"]),now_iso(),r["vehicle_id"])); conn.commit(); return r["vehicle_id"]
     vid = str(uuid.uuid4())
-    conn.execute("INSERT INTO vehicles(vehicle_id,customer_id,vin,plate,make,model,year,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-                 (vid,customer_id,vin,plate,make,model,year,now_iso())); conn.commit(); return vid
-def get_next_invoice_number(conn): return 0  # server assigns invoice numbers via sync; 0 is placeholder
+    conn.execute("INSERT INTO vehicles(vehicle_id,customer_id,vin,plate,make,model,year,truck_number,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                 (vid,customer_id,vin,plate,make,model,year,truck_number,now_iso())); conn.commit(); return vid
+def get_next_invoice_number(conn):
+    row = conn.execute("SELECT MAX(invoice_number) FROM invoices WHERE invoice_number > 0").fetchone()
+    return (row[0] or 0) + 1
 def get_business_settings(conn):
     raw = get_setting(conn,"business","")
     if raw:
@@ -757,15 +773,18 @@ class SyncEngine:
         """Apply a remote account_payment upsert to local account_history."""
         payment_id=p.get("payment_id","")
         if not payment_id: return
-        # Skip if already applied
-        if conn.execute("SELECT 1 FROM account_history WHERE payment_id=?",(payment_id,)).fetchone(): return
         company_name=p.get("company_name","")
         customer_id=p.get("customer_id","")
         # Resolve company_name from customer_id if missing
         if not company_name and customer_id:
-            r=conn.execute("SELECT company_name FROM customers WHERE customer_id=?",(customer_id,)).fetchone()
-            if r: company_name=(r["company_name"] or "").strip()
-        # Resolve company_name from referenced invoice if still missing
+            r=conn.execute("SELECT company_name,first_name,last_name FROM customers WHERE customer_id=?",(customer_id,)).fetchone()
+            if r:
+                co=(r["company_name"] or "").strip()
+                if not co:
+                    fn=(r["first_name"] or "").strip(); ln=(r["last_name"] or "").strip()
+                    co=f"{fn} {ln}".strip()
+                company_name=co
+        # Resolve from referenced invoice if still missing
         if not company_name:
             for iid in p.get("invoice_id","").split(","):
                 iid=iid.strip()
@@ -774,31 +793,51 @@ class SyncEngine:
                 if r:
                     company_name=(r["company_name"] or r["account_id"] or "").strip()
                     if company_name: break
+        # Fallback: try first+last from payload (individual account)
+        if not company_name:
+            fn=(p.get("first_name","") or "").strip(); ln=(p.get("last_name","") or "").strip()
+            full=f"{fn} {ln}".strip()
+            if full:
+                r=conn.execute("SELECT company_name FROM accounts WHERE UPPER(company_name)=UPPER(?)",(full,)).fetchone()
+                if r: company_name=r["company_name"]
+        # Final fallback: customer_name from payload
+        if not company_name:
+            cname=(p.get("customer_name","") or "").strip()
+            if cname:
+                r=conn.execute("SELECT company_name FROM accounts WHERE UPPER(company_name)=UPPER(?)",(cname,)).fetchone()
+                if r: company_name=r["company_name"]
         if not company_name: return
+        # Normalize to canonical account key — handles case differences and individual (__INDV__) accounts
+        acct=conn.execute("SELECT company_name FROM accounts WHERE UPPER(company_name)=UPPER(?)",(company_name,)).fetchone()
+        if not acct:
+            _parts=company_name.strip().split(None,1)
+            if len(_parts)==2:
+                acct=conn.execute("SELECT company_name FROM accounts WHERE is_individual=1 AND UPPER(first_name)=UPPER(?) AND UPPER(last_name)=UPPER(?)",(_parts[0],_parts[1])).fetchone()
+        if acct: company_name=acct["company_name"]
         amount_cents=int(p.get("amount_cents",0))
         amount=amount_cents/100.0
         entry_date=p.get("entry_date",now_iso()[:10])
         note=p.get("note",""); invoice_id=p.get("invoice_id",""); payment_number=p.get("payment_number","")
         partial_json=p.get("partial_json","{}")
-        rec_type=p.get("type","payment")  # 'payment' or 'adjustment'
-        conn.execute(
+        rec_type=p.get("type","payment")
+        # Idempotent history insert — rowcount tells us if this is the first time
+        ins=conn.execute(
             "INSERT OR IGNORE INTO account_history(company_name,entry_date,type,amount,note,invoice_id,payment_number,payment_id,partial_json) "
             "VALUES(?,?,?,?,?,?,?,?,?)",
             (company_name,entry_date,rec_type,amount,note,invoice_id,payment_number,payment_id,partial_json))
-        if rec_type=="adjustment":
-            # Zero the balance directly — adjustment sets total_owed to 0
-            conn.execute("UPDATE accounts SET total_owed=0,updated_at=? WHERE company_name=?",
-                         (now_iso(),company_name))
-            slog(f"[Adjustment] balance zeroed for {company_name}")
-        elif rec_type=="charge":
-            # Charge ADDS to the balance (invoice placed on account from mobile)
-            conn.execute("UPDATE accounts SET total_owed=total_owed+?,updated_at=? WHERE company_name=?",
-                         (amount,now_iso(),company_name))
-            slog(f"[Charge] balance increased for {company_name} ${amount:.2f}")
-        else:
-            conn.execute("UPDATE accounts SET total_owed=MAX(0,total_owed-?),updated_at=? WHERE company_name=?",
-                         (amount,now_iso(),company_name))
-            slog(f"[Payment] merged {payment_number} for {company_name} ${amount:.2f}")
+        if ins.rowcount>0:
+            # First time we've seen this payment — update running balance
+            if rec_type=="adjustment":
+                conn.execute("UPDATE accounts SET total_owed=0,updated_at=? WHERE UPPER(company_name)=UPPER(?)",(now_iso(),company_name))
+                slog(f"[Adjustment] balance zeroed for {company_name}")
+            elif rec_type=="charge":
+                cur2=conn.execute("UPDATE accounts SET total_owed=total_owed+?,updated_at=? WHERE UPPER(company_name)=UPPER(?)",(amount,now_iso(),company_name))
+                if cur2.rowcount==0:
+                    conn.execute("INSERT INTO accounts(company_name,total_owed,updated_at) VALUES(?,?,?) ON CONFLICT(company_name) DO UPDATE SET total_owed=total_owed+?,updated_at=?",(company_name,amount,now_iso(),amount,now_iso()))
+                slog(f"[Charge] balance increased for {company_name} ${amount:.2f}")
+            else:
+                conn.execute("UPDATE accounts SET total_owed=MAX(0,total_owed-?),updated_at=? WHERE UPPER(company_name)=UPPER(?)",(amount,now_iso(),company_name))
+                slog(f"[Payment] merged {payment_number} for {company_name} ${amount:.2f}")
         conn.commit()
 
     def _delete_customer(self,conn,p):
@@ -846,6 +885,7 @@ class SyncEngine:
         iid=p.get("invoice_id","")
         if not iid: return
         conn.execute("DELETE FROM invoice_lines WHERE invoice_id=?",(iid,))
+        conn.execute("DELETE FROM account_history WHERE invoice_id=?",(iid,))
         conn.execute("DELETE FROM invoices WHERE invoice_id=?",(iid,)); conn.commit()
     def _merge_customer(self,conn,p):
         try:
@@ -896,10 +936,27 @@ class SyncEngine:
             year=p.get("year",""); make=p.get("make",""); model=p.get("model","")
             notes=p.get("notes")or""; pay_method=p.get("payment_method")or""; invoice_date=p.get("invoice_date")or""; amount_cents=int(p.get("amount_cents")or 0)
             po_number=p.get("po_number","")or""
-            conn.execute("INSERT OR IGNORE INTO invoices(invoice_id,invoice_number,customer_id,customer_name,first_name,last_name,company_name,invoice_date,plate,vin,year,make,model,amount_cents,payment_method,status,notes,is_estimate,po_number,from_mobile,created_at,updated_at,synced) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,1)",
-                         (iid,inv_num,cid,name,first,last,company,invoice_date,plate,vin,year,make,model,amount_cents,pay_method,status,notes,is_est,po_number,now_iso(),now_iso()))
-            conn.execute("UPDATE invoices SET invoice_number=?,customer_id=?,customer_name=?,first_name=?,last_name=?,company_name=?,invoice_date=?,plate=?,vin=?,year=?,make=?,model=?,amount_cents=?,payment_method=?,status=?,notes=?,is_estimate=?,po_number=?,from_mobile=1,updated_at=?,synced=1 WHERE invoice_id=?",
-                         (inv_num,cid,name,first,last,company,invoice_date,plate,vin,year,make,model,amount_cents,pay_method,status,notes,is_est,po_number,now_iso(),iid))
+            account_id=p.get("account_id","")or""
+            # For CHARGE invoices without account_id, resolve it from the customer record
+            # so the invoice appears in the account's Customer History
+            if pay_method.upper()=="CHARGE" and not account_id and cid:
+                cr=conn.execute("SELECT company_name,first_name,last_name FROM customers WHERE customer_id=?",(cid,)).fetchone()
+                if cr:
+                    co=(cr["company_name"] or "").strip()
+                    if not co:
+                        fn=(cr["first_name"] or "").strip(); ln=(cr["last_name"] or "").strip()
+                        co=f"{fn} {ln}".strip()
+                    if co:
+                        ar=conn.execute("SELECT company_name FROM accounts WHERE UPPER(company_name)=UPPER(?)",(co,)).fetchone()
+                        if not ar:
+                            _cp=co.split(None,1)
+                            if len(_cp)==2:
+                                ar=conn.execute("SELECT company_name FROM accounts WHERE is_individual=1 AND UPPER(first_name)=UPPER(?) AND UPPER(last_name)=UPPER(?)",(_cp[0],_cp[1])).fetchone()
+                        if ar: account_id=ar["company_name"]
+            conn.execute("INSERT OR IGNORE INTO invoices(invoice_id,invoice_number,customer_id,customer_name,first_name,last_name,company_name,account_id,invoice_date,plate,vin,year,make,model,amount_cents,payment_method,status,notes,is_estimate,po_number,from_mobile,created_at,updated_at,synced) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,1)",
+                         (iid,inv_num,cid,name,first,last,company,account_id,invoice_date,plate,vin,year,make,model,amount_cents,pay_method,status,notes,is_est,po_number,now_iso(),now_iso()))
+            conn.execute("UPDATE invoices SET invoice_number=?,customer_id=?,customer_name=?,first_name=?,last_name=?,company_name=?,account_id=?,invoice_date=?,plate=?,vin=?,year=?,make=?,model=?,amount_cents=?,payment_method=?,status=?,notes=?,is_estimate=?,po_number=?,from_mobile=1,updated_at=?,synced=1 WHERE invoice_id=?",
+                         (inv_num,cid,name,first,last,company,account_id,invoice_date,plate,vin,year,make,model,amount_cents,pay_method,status,notes,is_est,po_number,now_iso(),iid))
             if plate or vin: upsert_vehicle(conn,cid,vin,plate,make,model,year)
             conn.commit()
         except Exception as e: slog(f"[Merge] invoice FAILED err={e}")
@@ -941,6 +998,7 @@ class SyncEngine:
                 except: price=0.0
             vin=p.get("vin","")or""; plate=p.get("plate","")or""; odometer=p.get("odometer","")or p.get("odo","")or""
             year=p.get("year","")or""; make=p.get("make","")or""; model=p.get("model","")or""
+            truck_number=p.get("truck_number","")or""
             if not (vin or plate or year or make or model):
                 inv=conn.execute("SELECT * FROM invoices WHERE invoice_id=?",(invoice_id,)).fetchone()
                 if inv:
@@ -959,14 +1017,14 @@ class SyncEngine:
             if remote_item_id:
                 existing=conn.execute("SELECT id FROM invoice_lines WHERE remote_item_id=?",(remote_item_id,)).fetchone()
                 if existing:
-                    conn.execute("UPDATE invoice_lines SET invoice_id=?,vin=?,plate=?,odometer=?,year=?,make=?,model=?,service=?,result=?,cert=?,discount=?,price=? WHERE remote_item_id=?",
-                                 (invoice_id,vin,plate,odometer,year,make,model,service,result,cert,discount,price,remote_item_id))
+                    conn.execute("UPDATE invoice_lines SET invoice_id=?,vin=?,plate=?,truck_number=?,odometer=?,year=?,make=?,model=?,service=?,result=?,cert=?,discount=?,price=? WHERE remote_item_id=?",
+                                 (invoice_id,vin,plate,truck_number,odometer,year,make,model,service,result,cert,discount,price,remote_item_id))
                 else:
-                    conn.execute("INSERT OR REPLACE INTO invoice_lines(invoice_id,vin,plate,odometer,year,make,model,service,result,cert,discount,price,remote_item_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                                 (invoice_id,vin,plate,odometer,year,make,model,service,result,cert,discount,price,remote_item_id))
+                    conn.execute("INSERT OR REPLACE INTO invoice_lines(invoice_id,vin,plate,truck_number,odometer,year,make,model,service,result,cert,discount,price,remote_item_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                 (invoice_id,vin,plate,truck_number,odometer,year,make,model,service,result,cert,discount,price,remote_item_id))
             else:
-                conn.execute("INSERT INTO invoice_lines(invoice_id,vin,plate,odometer,year,make,model,service,result,cert,discount,price,remote_item_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                             (invoice_id,vin,plate,odometer,year,make,model,service,result,cert,discount,price,""))
+                conn.execute("INSERT INTO invoice_lines(invoice_id,vin,plate,truck_number,odometer,year,make,model,service,result,cert,discount,price,remote_item_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                             (invoice_id,vin,plate,truck_number,odometer,year,make,model,service,result,cert,discount,price,""))
             conn.commit()
         except Exception as e: slog(f"[Merge] invoice_item FAILED err={e}")
 
@@ -1101,12 +1159,12 @@ def draw_header(c, biz, title, subtitle=""):
     qr_path = (biz.get("qr_path") or "").strip()
     if qr_path and os.path.exists(qr_path):
         try:
-            c.drawImage(ImageReader(qr_path), w-108, h-100, width=68, height=68,
+            c.drawImage(ImageReader(qr_path), w-126, h-106, width=90, height=90,
                         preserveAspectRatio=True)
             has_qr = True
         except Exception: pass
     # ── Title (right) ────────────────────────────────────────────────────────
-    title_x = w-116 if has_qr else w-36
+    title_x = w-134 if has_qr else w-36
     c.setFont("Helvetica-Bold", 15); c.drawRightString(title_x, h-28, title)
     if subtitle: c.setFont("Helvetica", 9); c.drawRightString(title_x, h-44, subtitle)
     c.setStrokeColor(colors.HexColor("#0097A7")); c.setLineWidth(1.5); c.line(36, h-108, w-36, h-108)
@@ -1126,10 +1184,10 @@ def generate_invoice_pdf(invoice_id, conn, out_path):
     FS_BODY=9; FS_LABEL=9; FS_BOLD=10; FS_TOTAL=11; FS_GTOTAL=13; FS_NOTICE=5.5; LINE_H=13; BARCODE_RESERVE=52
     def page_header(page_title=None):
         has_qr = draw_header(c,biz,page_title or title,"")
-        date_x = w-116 if has_qr else w-40
+        right_x = w-134 if has_qr else w-36
         c.setFont("Helvetica",FS_LABEL)
-        c.drawRightString(w-170,h-58,f"{title.title()} #: {inv_num}")
-        c.drawRightString(date_x,h-58,f"Date: {inv['invoice_date']}")
+        c.drawRightString(right_x,h-44,f"{title.title()} #: {inv_num}")
+        c.drawRightString(right_x,h-58,f"Date: {inv['invoice_date']}")
     page_header(); y=h-125
     c.setFont("Helvetica-Bold",FS_BOLD+2); c.drawString(40,y,"Bill To:"); x=160
     c.setFont("Helvetica-Bold",FS_BOLD)
@@ -1147,7 +1205,7 @@ def generate_invoice_pdf(invoice_id, conn, out_path):
     y-=8; c.line(40,y,w-40,y); y-=16
     c.setFont("Helvetica-Bold",FS_BOLD)
     c.drawString(70,y,"Vehicle / Service Performed"); c.drawRightString(w-70,y,"Amount")
-    y-=10; c.line(70,y,w-70,y); y-=LINE_H; subtotal=0.0
+    y-=10; c.line(70,y,w-70,y); y-=LINE_H; subtotal=0.0; surcharge_total=0.0; surcharge_label_pdf=""
     def ensure_space(min_y=BARCODE_RESERVE+10):
         nonlocal y
         if y>=min_y: return
@@ -1159,20 +1217,24 @@ def generate_invoice_pdf(invoice_id, conn, out_path):
     prev_vin_pdf=""
     for line in lines:
         ensure_space(); svc_name=(line["service"]or"").strip()
-        is_fee_line=svc_name in ("Credit Card Fee","Card Fee","CC Fee")
+        is_fee_line=(svc_name in ("Credit Card Fee","Card Fee","CC Fee","Card Surcharge")
+                     or "surcharge" in svc_name.lower())
         is_cert_line=svc_name=="Certificate"
-        if is_fee_line: vin_l=plate_l=odo_l=year_l=make_l=model_l=""
-        else:
-            vin_l=(line["vin"]or"").strip()or hdr_vin; plate_l=(line["plate"]or"").strip()or hdr_plate
-            odo_l=(line["odometer"]or"").strip(); year_l=(line["year"]or"").strip()or hdr_year
-            make_l=(line["make"]or"").strip()or hdr_make; model_l=(line["model"]or"").strip()or hdr_model
+        disc=float(line["discount"]or 0); price=float(line["price"]or 0)
+        if is_fee_line:
+            surcharge_total+=price; surcharge_label_pdf=svc_name or "Card Surcharge"; continue
+        subtotal+=price
+        vin_l=(line["vin"]or"").strip()or hdr_vin; plate_l=(line["plate"]or"").strip()or hdr_plate
+        truck_l=((line["truck_number"] if "truck_number" in line.keys() else "") or "").strip()
+        odo_l=(line["odometer"]or"").strip(); year_l=(line["year"]or"").strip()or hdr_year
+        make_l=(line["make"]or"").strip()or hdr_make; model_l=(line["model"]or"").strip()or hdr_model
         result=(line["result"]or"").strip(); cert=(line["cert"]or"").strip()
-        disc=float(line["discount"]or 0); price=float(line["price"]or 0); subtotal+=price
         same_vehicle=is_cert_line and vin_l and vin_l==prev_vin_pdf
         if not same_vehicle:
             info_parts=[]
             if vin_l: info_parts.append(f"VIN: {vin_l}")
             if plate_l: info_parts.append(f"Plate: {plate_l}")
+            if truck_l: info_parts.append(f"Truck#: {truck_l}")
             if odo_l: info_parts.append(f"Odometer: {odo_l}")
             if info_parts: c.setFont("Helvetica-Bold",FS_BOLD); c.drawString(70,y,"    ".join(info_parts)); y-=LINE_H
             vehicle_line="   ".join(filter(None,[f"Year: {year_l}" if year_l else"",f"Make: {make_l}" if make_l else"",f"Model: {model_l}" if model_l else""]))
@@ -1180,15 +1242,15 @@ def generate_invoice_pdf(invoice_id, conn, out_path):
         c.setFont("Helvetica",FS_BODY)
         service_text=svc_name or"Service Performed"
         if result and svc_name=="Smog Test": service_text+=f" ({result})"
-        if cert: service_text+=f"  Cert: {cert}"
+        if cert and svc_name != "Certificate": service_text+=f"  Cert: {cert}"
         if same_vehicle and is_cert_line:
             cert_x=90+c.stringWidth("Service: ","Helvetica",FS_BODY)
-            c.drawString(cert_x,y,service_text); c.drawRightString(w-70,y,f"${price:,.2f}"); y-=LINE_H
+            c.drawString(cert_x,y,service_text); c.drawRightString(w-70,y,f"${price+disc:,.2f}"); y-=LINE_H
         else:
-            c.drawString(90,y,f"Service: {service_text}"); c.drawRightString(w-70,y,f"${price:,.2f}"); y-=LINE_H
+            c.drawString(90,y,f"Service: {service_text}"); c.drawRightString(w-70,y,f"${price+disc:,.2f}"); y-=LINE_H
         if disc>0: c.drawString(90,y,"Discount"); c.drawRightString(w-70,y,f"-${disc:,.2f}"); y-=LINE_H
         y-=6
-        if not is_fee_line and vin_l: prev_vin_pdf=vin_l
+        if vin_l: prev_vin_pdf=vin_l
     if not lines:
         vrow=_best_vehicle_for_invoice(conn,inv)
         vin_f=(inv["vin"]or"").strip()or(vrow["vin"]if vrow else"")
@@ -1207,9 +1269,15 @@ def generate_invoice_pdf(invoice_id, conn, out_path):
         c.setFont("Helvetica",FS_BODY); c.drawString(90,y,f"Service: {service_text}")
         c.drawRightString(w-70,y,f"${subtotal:,.2f}"); y-=LINE_H+4
     c.line(40,y,w-40,y); y-=18
-    inv_total=float(inv["amount_cents"]or 0)/100.0; total_due=inv_total if inv_total>0 else subtotal
-    c.setFont("Helvetica-Bold",FS_TOTAL); c.drawRightString(w-40,y,f"Subtotal: ${total_due:,.2f}"); y-=16
-    c.setFont("Helvetica-Bold",FS_GTOTAL); c.drawRightString(w-40,y,f"Grand Total: ${total_due:,.2f}"); y-=24
+    inv_total=float(inv["amount_cents"]or 0)/100.0
+    grand_total=inv_total if inv_total>0 else (subtotal+surcharge_total)
+    if surcharge_total>0:
+        svc_sub=grand_total-surcharge_total
+        c.setFont("Helvetica-Bold",FS_TOTAL); c.drawRightString(w-40,y,f"Subtotal: ${svc_sub:,.2f}"); y-=16
+        c.setFont("Helvetica",FS_BODY); c.drawRightString(w-40,y,f"{surcharge_label_pdf or 'Card Surcharge'}: ${surcharge_total:,.2f}"); y-=16
+        c.setFont("Helvetica-Bold",FS_GTOTAL); c.drawRightString(w-40,y,f"Grand Total: ${grand_total:,.2f}"); y-=24
+    else:
+        c.setFont("Helvetica-Bold",FS_GTOTAL); c.drawRightString(w-40,y,f"Grand Total: ${grand_total:,.2f}"); y-=24
     if not is_estimate and inv["payment_method"]:
         c.setFont("Helvetica",FS_BODY); c.drawString(70,y,f"Payment Method: {inv['payment_method']}"); y-=LINE_H
     if inv["notes"]:
@@ -2792,6 +2860,7 @@ class App(QMainWindow):
             try: os.remove(pdf_row["pdf_path"])
             except: pass
         self.db.execute("DELETE FROM invoice_lines WHERE invoice_id=?",(iid,))
+        self.db.execute("DELETE FROM account_history WHERE invoice_id=?",(iid,))
         self.db.execute("DELETE FROM invoices WHERE invoice_id=?",(iid,)); self.db.commit()
         # Push delete event directly to server so mobile sees it on the next pull.
         # Fall back to outbox if the push fails (background sync will retry).
@@ -2871,7 +2940,13 @@ class App(QMainWindow):
         self._f_vstate    = QLineEdit("CA"); _upper_entry(self._f_vstate);   _gl.addWidget(self._f_vstate)
 
         self._f_svc       = QComboBox(); self._f_svc.setMinimumWidth(180);   _gl.addWidget(self._f_svc)
-        self._f_result    = QComboBox(); self._f_result.addItems(["Pass","Fail","Retest"]); _gl.addWidget(self._f_result)
+        self._f_result    = QComboBox(); self._f_result.addItems(["Pass","Fail"]); _gl.addWidget(self._f_result)
+        self._ee_pass_btn = QPushButton("PASS"); _gl.addWidget(self._ee_pass_btn)
+        self._ee_fail_btn = QPushButton("FAIL"); _gl.addWidget(self._ee_fail_btn)
+        self._ee_pass_btn.clicked.connect(lambda: self._ee_toggle_result("Pass"))
+        self._ee_fail_btn.clicked.connect(lambda: self._ee_toggle_result("Fail"))
+        self._f_cert = QLineEdit(); _upper_entry(self._f_cert); _gl.addWidget(self._f_cert)
+        self._ee_tech = QLineEdit(); _gl.addWidget(self._ee_tech)
         self._f_disc      = QLineEdit("0");                                  _gl.addWidget(self._f_disc)
         self._total_lbl   = QLabel("Total: $0.00");                          _gl.addWidget(self._total_lbl)
         self._ee_total_big= QLabel("TOTAL: $0.00");                          _gl.addWidget(self._ee_total_big)
@@ -3009,25 +3084,34 @@ class App(QMainWindow):
         cust_bl.addWidget(_lbl("Notes")); cust_bl.addWidget(self._f_notes)
         grid.addWidget(cust_c, 1, 0)
 
-        # ── INSPECTION RESULT CARD ──
-        insp_c, insp_bl, _ = _card("☑", "Inspection result")
-        self._ee_pass_btn = QPushButton("PASS")
-        self._ee_fail_btn = QPushButton("FAIL")
-        self._ee_pass_btn.clicked.connect(lambda: self._ee_toggle_result("Pass"))
-        self._ee_fail_btn.clicked.connect(lambda: self._ee_toggle_result("Fail"))
-        self._ee_toggle_result("", init=True)  # set initial inactive styles
-        tog_row = QHBoxLayout(); tog_row.setSpacing(0)
-        tog_row.addWidget(self._ee_pass_btn); tog_row.addWidget(self._ee_fail_btn); tog_row.addStretch()
-        self._f_cert = QLineEdit(); self._f_cert.setPlaceholderText("Pending")
-        self._ee_tech = QLineEdit(); self._ee_tech.setPlaceholderText("J. Hernandez")
-        ct_row = QHBoxLayout(); ct_row.setSpacing(10)
-        ct_lbl_row = QHBoxLayout(); ct_lbl_row.setSpacing(10)
-        ct_lbl_row.addWidget(_lbl("Certificate #"), 1); ct_lbl_row.addWidget(_lbl("Technician"), 1)
-        ct_row.addWidget(self._f_cert, 1); ct_row.addWidget(self._ee_tech, 1)
-        insp_bl.addWidget(_lbl("Result")); insp_bl.addLayout(tog_row)
-        insp_bl.addLayout(ct_lbl_row); insp_bl.addLayout(ct_row)
-        insp_bl.addStretch()
-        grid.addWidget(insp_c, 0, 1)
+        # initialise pass/fail button styles (buttons live in ghost widget)
+        self._ee_toggle_result("", init=True)
+
+        # ── ACCOUNT / CUSTOMER SELECTOR CARD ──
+        acct_c, acct_bl, _ = _card("🏢", "Account / Customer")
+        self._acct_cust_cmb = QComboBox()
+        self._acct_cust_cmb.setStyleSheet(
+            f"QComboBox{{background:#F8FAFD;border:1px solid #B8CCE8;"
+            f"border-radius:6px;padding:5px 10px;color:{CLR_BLUE};font-size:10pt;}}"
+            f"QComboBox QAbstractItemView{{background:{CLR_CARD};selection-background-color:{CLR_BFAINT};}}")
+        self._acct_cust_cmb.currentTextChanged.connect(self._acct_cust_selected)
+        self._acct_veh_tbl = QTableWidget(0, 5)
+        self._acct_veh_tbl.setHorizontalHeaderLabels(["Plate","VIN","Truck#","Year/Make/Model","Next Due"])
+        self._acct_veh_tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._acct_veh_tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._acct_veh_tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self._acct_veh_tbl.setAlternatingRowColors(True)
+        self._acct_veh_tbl.cellClicked.connect(self._acct_veh_row_clicked)
+        self._acct_veh_tbl.setMaximumHeight(180)
+        self._acct_veh_no_lbl = QLabel("Select an account to see vehicles")
+        self._acct_veh_no_lbl.setStyleSheet(f"color:{CLR_TSUB};font-size:9pt;background:transparent;")
+        self._acct_veh_no_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        acct_bl.addWidget(_lbl("Account")); acct_bl.addWidget(self._acct_cust_cmb)
+        acct_bl.addSpacing(6)
+        acct_bl.addWidget(_lbl("Vehicles")); acct_bl.addWidget(self._acct_veh_no_lbl)
+        acct_bl.addWidget(self._acct_veh_tbl); self._acct_veh_tbl.hide()
+        acct_bl.addStretch()
+        grid.addWidget(acct_c, 0, 1)
 
         # ── VEHICLE CARD ──
         veh_c, veh_bl, _ = _card(">>", "Vehicle")
@@ -3056,10 +3140,12 @@ class App(QMainWindow):
         plate_w = QWidget(); plate_col = QVBoxLayout(plate_w)
         plate_col.setContentsMargins(0,0,0,0); plate_col.setSpacing(3)
         plate_col.addWidget(self._f_plate); plate_col.addWidget(self._no_plate_cb)
+        self._f_truck = QLineEdit(); _upper_entry(self._f_truck); self._f_truck.setPlaceholderText("Truck #")
         r1 = QGridLayout(); r1.setSpacing(8)
         r1.addWidget(_lbl("License plate"),0,0); r1.addWidget(plate_w,1,0)
-        r1.addWidget(_lbl("Test date"),0,1);      r1.addWidget(date_w,1,1)
-        r1.setColumnStretch(0,2); r1.setColumnStretch(1,2)
+        r1.addWidget(_lbl("Truck #"),0,1);        r1.addWidget(self._f_truck,1,1)
+        r1.addWidget(_lbl("Test date"),0,2);      r1.addWidget(date_w,1,2)
+        r1.setColumnStretch(0,2); r1.setColumnStretch(1,1); r1.setColumnStretch(2,2)
         # Row 2: VIN
         self._f_vin = QLineEdit(); _upper_entry(self._f_vin); self._f_vin.setPlaceholderText("VIN")
         # Row 3: Year | Make | Model
@@ -3254,9 +3340,9 @@ class App(QMainWindow):
                 auth_e.textChanged.connect(lambda txt, i=idx: self._set_line_cert(i, txt))
                 rh.addWidget(auth_e)
             else:
-                # Pass/Fail/Retest dropdown
+                # Pass/Fail dropdown
                 res_cmb = QComboBox()
-                _res_opts = ["Pass","Fail","Retest"]
+                _res_opts = ["Pass","Fail"]
                 res_cmb.addItems(_res_opts)
                 res_cmb.setCurrentText(d.get("result","Pass") or "Pass")
                 res_cmb.setFixedWidth(82)
@@ -3269,6 +3355,7 @@ class App(QMainWindow):
                 cert_fee = d.get("cert_fee", 0) or float(svcs.get(d.get("service",""), {}).get("cert_fee", 0))
                 if cert_fee > 0:
                     cert_e = QLineEdit(d.get("cert",""))
+                    _upper_entry(cert_e)
                     cert_e.setPlaceholderText("Cert #")
                     cert_e.setFixedWidth(88)
                     cert_e.setStyleSheet(
@@ -3338,6 +3425,7 @@ class App(QMainWindow):
             self._ee_view.resetTransform()
             self._ee_view.scale(scale, scale)
         self._refresh_acct_id_dropdown()
+        self._refresh_acct_cust_dropdown()
         svc_names = list(get_services(self.db).keys())
         self._f_svc.clear(); self._f_svc.addItems(svc_names)
         if hasattr(self, '_veh_svc_cmb'):
@@ -3383,17 +3471,22 @@ class App(QMainWindow):
         """Store discount from customer record and show it on the form."""
         if not cust_row:
             self._cust_discount_pct  = 0.0
-            self._cust_discount_type = "PERCENT"
+            self._cust_discount_type = "LINE"
             if hasattr(self, '_disc_info_lbl'): self._disc_info_lbl.setText("")
             return
         self._cust_discount_pct  = float(cust_row["discount_percent"] or 0.0)
-        self._cust_discount_type = (cust_row["discount_type"] or "PERCENT").upper()
+        raw_type = (cust_row["discount_type"] or "LINE").upper()
+        # Map mobile types ('PERCENT', 'FLAT') to desktop internal types
+        _type_map = {"PERCENT": "LINE", "FLAT": "FLAT_LINE"}
+        raw_type = _type_map.get(raw_type, raw_type)
+        self._cust_discount_type = raw_type if raw_type in ("LINE","TOTAL","FLAT_LINE","FLAT_TOTAL") else "LINE"
         if hasattr(self, '_disc_info_lbl'):
             if self._cust_discount_pct:
-                if self._cust_discount_type == "FLAT":
-                    self._disc_info_lbl.setText(f"Customer discount: ${self._cust_discount_pct:.2f} off each line")
-                else:
-                    self._disc_info_lbl.setText(f"Customer discount: {self._cust_discount_pct:.0f}% — applied automatically")
+                _lbl = {"LINE":f"{self._cust_discount_pct:.0f}% off each line — applied automatically",
+                        "TOTAL":f"{self._cust_discount_pct:.0f}% off total — applied at save",
+                        "FLAT_LINE":f"${self._cust_discount_pct:.2f} off each line — applied automatically",
+                        "FLAT_TOTAL":f"${self._cust_discount_pct:.2f} off total — applied at save"}
+                self._disc_info_lbl.setText(f"Customer discount: {_lbl.get(self._cust_discount_type, '')}")
             else:
                 self._disc_info_lbl.setText("")
 
@@ -3403,17 +3496,186 @@ class App(QMainWindow):
         last  = self._f_last.text().strip().upper()
         co    = self._f_company.text().strip().upper()
         if not (first or last or co): return
-        key = f"{first} {last}".strip() or co
-        cust = self.db.execute(
-            "SELECT * FROM customers WHERE UPPER(first_name||' '||last_name)=? OR UPPER(company_name)=? LIMIT 1",
-            (key,key)).fetchone()
-        if not cust: return
+
         def si(w2, val):
             if not w2.text().strip() and val: w2.setText(val)
-        si(self._f_phone,cust["phone"]); si(self._f_email,cust["email"])
-        si(self._f_addr,cust["address"]); si(self._f_city,cust["city"])
-        si(self._f_state,cust["state"]); si(self._f_zip,cust["zip"])
+
+        cust = None
+        if first or last:
+            name_key = f"{first} {last}".strip()
+            cust = self.db.execute(
+                "SELECT c.* FROM customers c "
+                "LEFT JOIN invoices i ON i.customer_id=c.customer_id "
+                "WHERE UPPER(c.first_name||' '||c.last_name)=? "
+                "ORDER BY i.invoice_date DESC, c.customer_id DESC LIMIT 1",
+                (name_key,)).fetchone()
+        if not cust and co:
+            cust = self.db.execute(
+                "SELECT c.* FROM customers c "
+                "LEFT JOIN invoices i ON i.customer_id=c.customer_id "
+                "WHERE UPPER(c.company_name)=? "
+                "ORDER BY i.invoice_date DESC, c.customer_id DESC LIMIT 1",
+                (co,)).fetchone()
+        if not cust:
+            search_co = co or f"{first} {last}".strip()
+            acct = self.db.execute(
+                "SELECT * FROM accounts WHERE UPPER(company_name)=? LIMIT 1",
+                (search_co,)).fetchone()
+            if acct:
+                si(self._f_first,   (acct["first_name"] if "first_name" in acct.keys() else "") or "")
+                si(self._f_last,    (acct["last_name"]  if "last_name"  in acct.keys() else "") or "")
+                si(self._f_company, acct["company_name"])
+                si(self._f_phone,   acct["phone"])
+                si(self._f_email,   acct["email"])
+                si(self._f_addr,    acct["address1"])
+                si(self._f_city,    acct["city"])
+                si(self._f_state,   acct["state"])
+                si(self._f_zip,     acct["zip"])
+            return
+        si(self._f_first,   cust["first_name"])
+        si(self._f_last,    cust["last_name"])
+        si(self._f_company, cust["company_name"])
+        si(self._f_phone,   cust["phone"])
+        si(self._f_email,   cust["email"])
+        si(self._f_addr,    cust["address"])
+        si(self._f_city,    cust["city"])
+        si(self._f_state,   cust["state"])
+        si(self._f_zip,     cust["zip"])
         self._apply_cust_discount(cust)
+
+    # ── Account Customer Selector helpers ────────────────────────────────
+    def _refresh_acct_cust_dropdown(self):
+        if not hasattr(self, '_acct_cust_cmb'): return
+        rows = self.db.execute("SELECT * FROM accounts ORDER BY company_name").fetchall()
+        self._acct_cust_key_map = {}  # display_name → company_name key
+        cur_key = getattr(self, '_acct_cust_cur_key', '')
+        self._acct_cust_cmb.blockSignals(True)
+        self._acct_cust_cmb.clear()
+        self._acct_cust_cmb.addItem("", "")
+        for r in rows:
+            dn = self._acct_disp_name(r)
+            self._acct_cust_cmb.addItem(dn, r["company_name"])
+            self._acct_cust_key_map[dn] = r["company_name"]
+        # Restore selection if key still exists
+        if cur_key:
+            for i in range(self._acct_cust_cmb.count()):
+                if self._acct_cust_cmb.itemData(i) == cur_key:
+                    self._acct_cust_cmb.setCurrentIndex(i); break
+        self._acct_cust_cmb.blockSignals(False)
+
+    def _acct_cust_selected(self, display_name):
+        display_name = display_name.strip()
+        if not display_name:
+            self._acct_veh_tbl.hide()
+            self._acct_veh_no_lbl.setText("Select an account to see vehicles")
+            self._acct_veh_no_lbl.show()
+            self._acct_cust_cur_key = ''
+            return
+        # Resolve display name → internal company_name key via combo data
+        key = None
+        for i in range(self._acct_cust_cmb.count()):
+            if self._acct_cust_cmb.itemText(i) == display_name:
+                key = self._acct_cust_cmb.itemData(i); break
+        if not key: key = display_name  # fallback
+        self._acct_cust_cur_key = key
+        acct = self.db.execute(
+            "SELECT * FROM accounts WHERE company_name=? LIMIT 1", (key,)).fetchone()
+        if acct:
+            def si(w2, val):
+                if not w2.text().strip() and val: w2.setText(val)
+            si(self._f_first,   (acct["first_name"] if "first_name" in acct.keys() else "") or "")
+            si(self._f_last,    (acct["last_name"]  if "last_name"  in acct.keys() else "") or "")
+            is_indv = acct["is_individual"] if "is_individual" in acct.keys() else 0
+            if not is_indv:
+                si(self._f_company, acct["company_name"])
+            si(self._f_phone,   acct["phone"])
+            si(self._f_email,   acct["email"])
+            si(self._f_addr,    acct["address1"])
+            si(self._f_city,    acct["city"])
+            si(self._f_state,   acct["state"])
+            si(self._f_zip,     acct["zip"])
+            self._apply_cust_discount(acct)
+        self._populate_acct_vehicles(key)
+
+    def _populate_acct_vehicles(self, company_key):
+        from datetime import date as _date
+        today   = _date.today().isoformat()
+        in30    = (_date.today() + timedelta(days=30)).isoformat()
+        # Resolve account row to get first/last for individual accounts
+        acct_row = self.db.execute("SELECT * FROM accounts WHERE company_name=? LIMIT 1",
+                                   (company_key,)).fetchone()
+        is_indv = bool(acct_row["is_individual"] if acct_row and "is_individual" in acct_row.keys() else 0)
+        if is_indv and acct_row:
+            first = (acct_row["first_name"] or "").strip().upper()
+            last  = (acct_row["last_name"]  or "").strip().upper()
+            rows = self.db.execute(
+                "SELECT v.* FROM vehicles v JOIN customers c ON c.customer_id=v.customer_id "
+                "WHERE UPPER(c.first_name)=? AND UPPER(c.last_name)=? AND v.deleted=0 "
+                "ORDER BY CASE WHEN v.next_test_due='' OR v.next_test_due IS NULL THEN 1 ELSE 0 END,"
+                "v.next_test_due ASC, v.plate ASC",
+                (first, last)).fetchall()
+        else:
+            rows = self.db.execute(
+                "SELECT v.* FROM vehicles v JOIN customers c ON c.customer_id=v.customer_id "
+                "WHERE UPPER(c.company_name)=? AND v.deleted=0 "
+                "ORDER BY CASE WHEN v.next_test_due='' OR v.next_test_due IS NULL THEN 1 ELSE 0 END,"
+                "v.next_test_due ASC, v.plate ASC",
+                (company_key.upper(),)).fetchall()
+            if not rows:
+                rows = self.db.execute(
+                    "SELECT v.* FROM vehicles v JOIN customers c ON c.customer_id=v.customer_id "
+                    "JOIN accounts a ON UPPER(a.company_name)=UPPER(c.company_name) "
+                    "WHERE a.company_name=? AND v.deleted=0 "
+                    "ORDER BY CASE WHEN v.next_test_due='' OR v.next_test_due IS NULL THEN 1 ELSE 0 END,"
+                    "v.next_test_due ASC, v.plate ASC",
+                    (company_key,)).fetchall()
+        self._acct_veh_data = list(rows)
+        tbl = self._acct_veh_tbl
+        tbl.setRowCount(0)
+        if not rows:
+            tbl.hide()
+            self._acct_veh_no_lbl.setText("No vehicles on file for this account")
+            self._acct_veh_no_lbl.show()
+            return
+        self._acct_veh_no_lbl.hide(); tbl.show()
+        for r, v in enumerate(rows):
+            tbl.insertRow(r)
+            plate = v["plate"] or ""
+            vin   = v["vin"]   or ""
+            truck = (v["truck_number"] if "truck_number" in v.keys() else "") or ""
+            ymm   = " ".join(filter(None,[v["year"] or "", v["make"] or "", v["model"] or ""]))
+            due   = v["next_test_due"] or ""
+            for col, val in enumerate([plate, vin, truck or "—", ymm, due or "—"]):
+                tbl.setItem(r, col, QTableWidgetItem(val))
+            if due:
+                if due < today:   clr = QColor("#FFE8E8")
+                elif due <= in30: clr = QColor("#FFF3CD")
+                else:             clr = None
+            else:
+                clr = None
+            if clr:
+                for col in range(5):
+                    item = tbl.item(r, col)
+                    if item: item.setBackground(clr)
+        tbl.resizeColumnsToContents()
+        tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+
+    def _acct_veh_row_clicked(self, row, col):
+        if not hasattr(self, '_acct_veh_data') or row >= len(self._acct_veh_data): return
+        v = self._acct_veh_data[row]
+        plate = (v["plate"] or "").strip()
+        if plate and plate.upper() != "NONE":
+            self._f_plate.setText(plate)
+            if hasattr(self, '_no_plate_cb'): self._no_plate_cb.setChecked(False)
+        self._f_vin.setText(v["vin"] or "")
+        self._f_year.setText(v["year"] or "")
+        self._f_make.setText(v["make"] or "")
+        self._f_model.setText(v["model"] or "")
+        if hasattr(self, '_f_truck'):
+            self._f_truck.setText((v["truck_number"] if "truck_number" in v.keys() else "") or "")
+        self._prefill_test_interval(v)
+
+    # ─────────────────────────────────────────────────────────────────────
 
     def _vin_lookup(self):
         vin = self._f_vin.text().strip().upper()
@@ -3424,6 +3686,7 @@ class App(QMainWindow):
             if not self._f_year.text(): self._f_year.setText(vrow["year"] or "")
             if not self._f_make.text(): self._f_make.setText(vrow["make"] or "")
             if not self._f_model.text(): self._f_model.setText(vrow["model"] or "")
+            if not self._f_truck.text(): self._f_truck.setText(vrow["truck_number"] or "")
             self._prefill_test_interval(vrow)
             # When plate is absent/NONE, also fill customer via VIN
             plate = self._f_plate.text().strip().upper()
@@ -3480,6 +3743,7 @@ class App(QMainWindow):
         if not self._f_year.text():  self._f_year.setText(vrow["year"] or "")
         if not self._f_make.text():  self._f_make.setText(vrow["make"] or "")
         if not self._f_model.text(): self._f_model.setText(vrow["model"] or "")
+        if not self._f_truck.text(): self._f_truck.setText(vrow["truck_number"] or "")
         self._prefill_test_interval(vrow)
         # Look up customer from most recent invoice for this plate+VIN combo, fall back to plate only
         if vin:
@@ -3587,22 +3851,29 @@ class App(QMainWindow):
         svc = self._f_svc.currentText().strip(); result = self._f_result.currentText().strip()
         if not svc: QMessageBox.warning(self,"Missing","Select a service."); return
         vin   = self._f_vin.text().strip();   plate = self._f_plate.text().strip()
+        # Auto-check "No Plate" if plate is blank
+        if not plate and hasattr(self, '_no_plate_cb') and not self._no_plate_cb.isChecked():
+            self._no_plate_cb.setChecked(True)
+        if not plate: plate = "NONE"
         odo   = self._f_odo.text().strip();    year  = self._f_year.text().strip()
         make  = self._f_make.text().strip();   model = self._f_model.text().strip()
+        truck = self._f_truck.text().strip()
         cert  = self._f_cert.text().strip()
         try: disc = float(self._f_disc.text().strip() or 0)
         except: disc = 0.0
         svcs_map = get_services(self.db); s = svcs_map.get(svc, {})
         cert_fee = float(s.get("cert_fee", 0))
         base_price = self._get_service_price(svc, result)
-        # Auto-apply customer discount if no manual discount entered
+        # Auto-apply per-line customer discount if no manual discount entered
         if disc == 0.0:
-            pct  = getattr(self, '_cust_discount_pct',  0.0)
-            dtype = getattr(self, '_cust_discount_type', 'PERCENT')
-            if pct:
-                disc = round(base_price * pct / 100, 2) if dtype != 'FLAT' else pct
+            pct   = getattr(self, '_cust_discount_pct',  0.0)
+            dtype = getattr(self, '_cust_discount_type', 'LINE')
+            if pct and dtype == 'FLAT_LINE':
+                disc = round(pct, 2)
+            elif pct and dtype == 'LINE':
+                disc = round(base_price * pct / 100, 2)
         price = max(base_price - disc, 0)
-        d = dict(vin=vin,plate=plate,odometer=odo,year=year,make=make[:8],model=model[:10],
+        d = dict(vin=vin,plate=plate,truck_number=truck,odometer=odo,year=year,make=make[:8],model=model[:10],
                  service=svc,result=result,cert=cert,discount=disc,price=price,
                  cert_fee=cert_fee,remote_item_id="")
         self._lines_data.append(d)
@@ -3611,7 +3882,7 @@ class App(QMainWindow):
             self._lines_table.setItem(r,col,QTableWidgetItem(val))
         self._update_total(); self._payment_changed()
         self._f_cert.clear(); self._f_disc.setText("0")
-        for w2 in (self._f_plate, self._f_vin, self._f_year, self._f_make, self._f_model, self._f_odo):
+        for w2 in (self._f_plate, self._f_vin, self._f_year, self._f_make, self._f_model, self._f_odo, self._f_truck):
             w2.clear()
         if hasattr(self, '_no_plate_cb') and self._no_plate_cb.isChecked():
             self._f_plate.setText("NONE")
@@ -3653,26 +3924,47 @@ class App(QMainWindow):
 
     def _payment_changed(self, text=None):
         pay = self._f_pay.currentText().upper()
-        self._lines_data = [d for d in self._lines_data if d["service"] != "Credit Card Fee"]
+        self._lines_data = [d for d in self._lines_data if d["service"] != "Card Surcharge"]
         self._lines_table.setRowCount(0)
         for d in self._lines_data:
             r = self._lines_table.rowCount(); self._lines_table.insertRow(r)
             for col,val in enumerate([d.get("vin",""),d["service"],d["result"],d["cert"],f"${d['discount']:.2f}",f"${d['price']:.2f}"]):
                 self._lines_table.setItem(r,col,QTableWidgetItem(val))
         if pay not in ("","CASH","CHECK","CHARGE"):
-            biz = get_business_settings(self.db); fee = float(biz.get("card_fee",5.0))
-            d = dict(vin="",plate="",odometer="",year="",make="",model="",service="Credit Card Fee",
+            biz = get_business_settings(self.db)
+            fee_val = float(biz.get("card_fee", 5.0))
+            fee_type = biz.get("card_surcharge_type", "fixed")
+            if fee_type == "percent":
+                subtotal = sum(d["price"] for d in self._lines_data)
+                fee = round(subtotal * fee_val / 100, 2)
+            else:
+                fee = fee_val
+            d = dict(vin="",plate="",truck_number="",odometer="",year="",make="",model="",service="Card Surcharge",
                      result="",cert="",discount=0.0,price=fee,cert_fee=0,remote_item_id="")
             self._lines_data.append(d)
             r = self._lines_table.rowCount(); self._lines_table.insertRow(r)
-            for col,val in enumerate(["","Credit Card Fee","","","$0.00",f"${fee:.2f}"]):
+            for col,val in enumerate(["","Card Surcharge","","","$0.00",f"${fee:.2f}"]):
                 self._lines_table.setItem(r,col,QTableWidgetItem(val))
         self._update_total()
 
     def _update_total(self):
-        total = sum(d["price"] for d in self._lines_data)
-        self._total_lbl.setText(f"Total: ${total:,.2f}")
-        self._ee_total_big.setText(f"TOTAL: ${total:,.2f}")
+        subtotal = sum(d["price"] for d in self._lines_data)
+        pct   = getattr(self, '_cust_discount_pct',  0.0)
+        dtype = getattr(self, '_cust_discount_type', 'LINE')
+        if pct and dtype == 'FLAT_TOTAL':
+            disc_amt = round(pct, 2)
+            total = max(subtotal - disc_amt, 0)
+            self._total_lbl.setText(f"Total: ${total:,.2f}  (${disc_amt:.2f} disc)")
+            self._ee_total_big.setText(f"TOTAL: ${total:,.2f}")
+        elif pct and dtype == 'TOTAL':
+            disc_amt = round(subtotal * pct / 100, 2)
+            total = max(subtotal - disc_amt, 0)
+            self._total_lbl.setText(f"Total: ${total:,.2f}  ({pct:.0f}% disc -${disc_amt:,.2f})")
+            self._ee_total_big.setText(f"TOTAL: ${total:,.2f}")
+        else:
+            total = subtotal
+            self._total_lbl.setText(f"Total: ${total:,.2f}")
+            self._ee_total_big.setText(f"TOTAL: ${total:,.2f}")
         if hasattr(self, '_ee_billing_lines'):
             self._refresh_billing_display()
 
@@ -3711,8 +4003,15 @@ class App(QMainWindow):
         if hasattr(self, '_f_next_due_date'): self._f_next_due_date.setDate(QDate.currentDate())
         if hasattr(self, '_no_plate_cb'): self._no_plate_cb.setChecked(False)
         self._cust_discount_pct  = 0.0
-        self._cust_discount_type = "PERCENT"
+        self._cust_discount_type = "LINE"
         if hasattr(self, '_disc_info_lbl'): self._disc_info_lbl.setText("")
+        if hasattr(self, '_acct_cust_cmb'):
+            self._acct_cust_cmb.blockSignals(True); self._acct_cust_cmb.setCurrentIndex(0)
+            self._acct_cust_cmb.blockSignals(False)
+        if hasattr(self, '_acct_veh_tbl'): self._acct_veh_tbl.hide()
+        if hasattr(self, '_acct_veh_no_lbl'):
+            self._acct_veh_no_lbl.setText("Select an account to see vehicles"); self._acct_veh_no_lbl.show()
+        if hasattr(self, '_f_truck'): self._f_truck.clear()
 
     def _load_invoice_into_form(self, invoice_id):
         self._clear_form(); self._editing_id = invoice_id
@@ -3736,7 +4035,9 @@ class App(QMainWindow):
         self._f_pay.setCurrentText(inv["payment_method"] or "")
         self._lines_data.clear(); self._lines_table.setRowCount(0)
         for line in lines:
-            d = dict(vin=line["vin"]or"",plate=line["plate"]or"",odometer=line["odometer"]or"",
+            d = dict(vin=line["vin"]or"",plate=line["plate"]or"",
+                     truck_number=line["truck_number"] if "truck_number" in line.keys() else "",
+                     odometer=line["odometer"]or"",
                      year=line["year"]or"",make=line["make"]or"",model=line["model"]or"",
                      service=line["service"]or"",result=line["result"]or"",cert=line["cert"]or"",
                      discount=float(line["discount"]or 0),price=float(line["price"]or 0),
@@ -3802,6 +4103,18 @@ class App(QMainWindow):
         self._dl_delete(self._editing_id); self._clear_form(); self.show_screen("doc_list")
 
     def _save_doc(self, is_estimate):
+        try:
+            self.__save_doc_impl(is_estimate)
+        except Exception as _top_err:
+            import traceback as _tb
+            _msg = f"{_top_err}\n\n{_tb.format_exc()}"
+            slog(f"[CRASH] _save_doc failed: {_msg}")
+            try:
+                QMessageBox.critical(self, "Save Error",
+                    f"An unexpected error occurred while saving the invoice.\n\nError: {_top_err}\n\nDetails have been logged.")
+            except Exception: pass
+
+    def __save_doc_impl(self, is_estimate):
         if not self._sub_status.get("can_create",True):
             QMessageBox.critical(self,"Subscription Required","Your free trial has ended."); return
         if not self._lines_data: QMessageBox.warning(self,"Error","Add at least one line."); return
@@ -3822,15 +4135,23 @@ class App(QMainWindow):
             if not (d["vin"] or d["plate"]): continue
             key = d["vin"] or d["plate"]
             if key in _seen: continue; _seen.add(key)
-            vid = upsert_vehicle(self.db,cid,d["vin"],d["plate"],d["make"],d["model"],d["year"])
+            vid = upsert_vehicle(self.db,cid,d["vin"],d["plate"],d["make"],d["model"],d["year"],
+                                 truck_number=d.get("truck_number",""))
             v_row = self.db.execute(
                 "SELECT service_type FROM vehicles WHERE vehicle_id=?", (vid,)).fetchone()
             v_svc = (v_row["service_type"] or "") if v_row else ""
             enqueue(self.db,"vehicle","upsert",{"vehicle_id":vid,"customer_id":cid,"vin":d["vin"],
                 "plate":d["plate"],"make":d["make"],"model":d["model"],"year":d["year"],
-                "odometer":d["odometer"],"service_type":v_svc})
+                "truck_number":d.get("truck_number",""),"odometer":d["odometer"],"service_type":v_svc})
 
         total_cents = int(sum(d["price"] for d in self._lines_data) * 100)
+        # Apply total-level discount if set
+        _disc_type = getattr(self, '_cust_discount_type', 'LINE')
+        _disc_pct  = getattr(self, '_cust_discount_pct',  0.0)
+        if _disc_pct and _disc_type == 'FLAT_TOTAL':
+            total_cents = max(total_cents - int(_disc_pct * 100), 0)
+        elif _disc_pct and _disc_type == 'TOTAL':
+            total_cents = max(int(total_cents * (1 - _disc_pct / 100)), 0)
         status = "ESTIMATE" if is_estimate else ("CHARGE" if fd["pay"]=="CHARGE" else "PAID")
         cname  = fd["company"] or f"{fd['first']} {fd['last']}".strip() or "Customer"
         plate  = next((d["plate"] for d in self._lines_data if d["plate"]),"")
@@ -3845,7 +4166,22 @@ class App(QMainWindow):
 
         charge_acct_co = ""
         if fd["pay"] == "CHARGE" and not is_estimate:
-            charge_acct_co = (fd["acct_id"] or fd["company"] or f"{fd['first']} {fd['last']}".strip()).upper()
+            # Prefer the account selector's internal key (__INDV_xxx for individuals)
+            acct_key = getattr(self, '_acct_cust_cur_key', '').strip()
+            if acct_key:
+                charge_acct_co = acct_key
+            else:
+                raw = (fd["acct_id"] or fd["company"] or f"{fd['first']} {fd['last']}".strip()).upper()
+                # Resolve to actual account key — handles individual accounts stored as __INDV_xxx
+                _found = self.db.execute("SELECT company_name FROM accounts WHERE UPPER(company_name)=UPPER(?)",(raw,)).fetchone()
+                if not _found:
+                    _parts = raw.split(None, 1)
+                    if len(_parts) == 2:
+                        _found = self.db.execute(
+                            "SELECT company_name FROM accounts WHERE is_individual=1 "
+                            "AND UPPER(first_name)=UPPER(?) AND UPPER(last_name)=UPPER(?)",
+                            (_parts[0], _parts[1])).fetchone()
+                charge_acct_co = _found["company_name"] if _found else raw
         effective_acct_id = charge_acct_co if charge_acct_co else fd["acct_id"]
 
         if self._editing_id:
@@ -3874,7 +4210,7 @@ class App(QMainWindow):
             cert_fee = d.get("cert_fee", 0)
             if not is_estimate and cert_fee > 0 and (d.get("result","") or "").upper() == "PASS":
                 base_line = dict(d); base_line["price"] = max(d["price"] - cert_fee, 0)
-                cert_line = dict(vin=d["vin"],plate=d["plate"],odometer="",
+                cert_line = dict(vin=d["vin"],plate=d["plate"],truck_number=d.get("truck_number",""),odometer="",
                                  year=d["year"],make=d["make"],model=d["model"],
                                  service="Certificate",result="Pass",cert=d.get("cert",""),
                                  discount=0.0,price=cert_fee,cert_fee=0,remote_item_id="")
@@ -3885,11 +4221,72 @@ class App(QMainWindow):
             if not d.get("remote_item_id"): d["remote_item_id"] = str(uuid.uuid4())
             self.db.execute("""
                 INSERT INTO invoice_lines
-                (invoice_id,vin,plate,odometer,year,make,model,service,result,cert,discount,price,remote_item_id)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,(iid,d["vin"],d["plate"],d["odometer"],d["year"],d["make"],d["model"],
+                (invoice_id,vin,plate,truck_number,odometer,year,make,model,service,result,cert,discount,price,remote_item_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,(iid,d["vin"],d["plate"],d.get("truck_number",""),d["odometer"],d["year"],d["make"],d["model"],
                  d["service"],d["result"],d["cert"],d["discount"],d["price"],d["remote_item_id"]))
         self.db.commit()
+
+        # Enqueue for sync immediately after commit so invoice is never lost if PDF generation crashes
+        enqueue(self.db,"invoice","upsert",{"invoice_id":iid,"invoice_number":inv_num or 0,
+            "customer_id":cid,"customer_name":cname,"first_name":fd["first"],"last_name":fd["last"],
+            "company_name":fd["company"],"invoice_date":fd["date"],"plate":plate,"vin":vin,
+            "year":yr,"make":mk,"model":md,"amount_cents":total_cents,"payment_method":fd["pay"],
+            "status":status,"notes":fd["notes"],"is_estimate":1 if is_estimate else 0,
+            "finalized":0 if is_estimate else 1,
+            "account_id":effective_acct_id or "",
+            "po_number":fd.get("po","") or "",
+            "owner_first":fd["first"],"owner_last":fd["last"]})
+        # Enqueue invoice line items so mobile shows individual services
+        for d in final_lines:
+            enqueue(self.db,"invoice_item","upsert",{
+                "item_id":     d["remote_item_id"],
+                "invoice_id":  iid,
+                "name":        d["service"],
+                "service":     d["service"],
+                "qty":         1,
+                "unit_price_cents": int(round((d["price"] + d.get("discount", 0)) * 100)),
+                "discount":    d.get("discount",0),
+                "discount_cents": int(round(d.get("discount",0) * 100)),
+                "result":      d.get("result",""),
+                "cert":        d.get("cert",""),
+                "odometer":    d.get("odometer",""),
+                "vin":          d.get("vin",""),
+                "plate":        d.get("plate",""),
+                "truck_number": d.get("truck_number",""),
+                "year":         d.get("year",""),
+                "make":         d.get("make",""),
+                "model":        d.get("model",""),
+                "tech_name":    "",
+            })
+        # Enqueue customer so mobile has full contact details
+        _cust_row = self.db.execute("SELECT * FROM customers WHERE customer_id=?", (cid,)).fetchone()
+        if _cust_row:
+            # Prefer account-level discount (mapped to mobile types) over customers table
+            _acct_disc = self.db.execute(
+                "SELECT discount_percent,discount_type FROM accounts WHERE UPPER(company_name)=UPPER(?)",
+                (_cust_row["company_name"] or "",)).fetchone()
+            if _acct_disc and float(_acct_disc["discount_percent"] or 0) > 0:
+                _ev_disc_pct  = float(_acct_disc["discount_percent"])
+                _ev_disc_type = "FLAT" if "FLAT" in (_acct_disc["discount_type"] or "").upper() else "PERCENT"
+            else:
+                _ev_disc_pct  = float(_cust_row["discount_percent"] or 0)
+                _ev_disc_type = (_cust_row["discount_type"] or "PERCENT").upper()
+                if _ev_disc_type not in ("PERCENT","FLAT"): _ev_disc_type = "PERCENT"
+            enqueue(self.db,"customer","upsert",{
+                "customer_id":     cid,
+                "first_name":      _cust_row["first_name"]  or "",
+                "last_name":       _cust_row["last_name"]   or "",
+                "company_name":    _cust_row["company_name"] or "",
+                "phone":           _cust_row["phone"]        or "",
+                "email":           _cust_row["email"]        or "",
+                "address":         _cust_row["address"]      or "",
+                "city":            _cust_row["city"]         or "",
+                "state":           _cust_row["state"]        or "",
+                "zip":             _cust_row["zip"]          or "",
+                "discount_percent": _ev_disc_pct,
+                "discount_type":   _ev_disc_type,
+            })
 
         # Update vehicle next_test_due if a due date is selected (interval != "No reminder")
         if not is_estimate and hasattr(self, '_f_test_interval') and hasattr(self, '_f_next_due_date'):
@@ -3897,7 +4294,6 @@ class App(QMainWindow):
             interval_days = _INTERVAL_OPTS[interval_idx][1]
             if interval_days is not None and (plate or vin):
                 try:
-                    # Use the directly-edited date from the calendar picker
                     qd = self._f_next_due_date.date()
                     next_due = f"{qd.year():04d}-{qd.month():02d}-{qd.day():02d}"
                     if plate:
@@ -3942,81 +4338,39 @@ class App(QMainWindow):
                 import traceback
                 QMessageBox.critical(self,"AR Error",f"Could not update account balance:\n{e}\n\n{traceback.format_exc()}")
 
-        # Enqueue for sync — invoice header (full fields so mobile has complete record)
-        enqueue(self.db,"invoice","upsert",{"invoice_id":iid,"invoice_number":inv_num or 0,
-            "customer_id":cid,"customer_name":cname,"first_name":fd["first"],"last_name":fd["last"],
-            "company_name":fd["company"],"invoice_date":fd["date"],"plate":plate,"vin":vin,
-            "year":yr,"make":mk,"model":md,"amount_cents":total_cents,"payment_method":fd["pay"],
-            "status":status,"notes":fd["notes"],"is_estimate":1 if is_estimate else 0,
-            "finalized":0 if is_estimate else 1,
-            "account_id":effective_acct_id or "",
-            "po_number":fd.get("po","") or "",
-            "owner_first":fd["first"],"owner_last":fd["last"]})
-        # Enqueue invoice line items so mobile shows individual services
-        for d in final_lines:
-            enqueue(self.db,"invoice_item","upsert",{
-                "item_id":     d["remote_item_id"],
-                "invoice_id":  iid,
-                "name":        d["service"],
-                "service":     d["service"],
-                "qty":         1,
-                "unit_price_cents": int(round(d["price"] * 100)),
-                "discount":    d.get("discount",0),
-                "discount_cents": int(round(d.get("discount",0) * 100)),
-                "result":      d.get("result",""),
-                "cert":        d.get("cert",""),
-                "odometer":    d.get("odometer",""),
-                "vin":         d.get("vin",""),
-                "plate":       d.get("plate",""),
-                "year":        d.get("year",""),
-                "make":        d.get("make",""),
-                "model":       d.get("model",""),
-                "tech_name":   "",
-            })
-        # Enqueue customer so mobile has full contact details
-        _cust_row = self.db.execute("SELECT * FROM customers WHERE customer_id=?", (cid,)).fetchone()
-        if _cust_row:
-            enqueue(self.db,"customer","upsert",{
-                "customer_id":     cid,
-                "first_name":      _cust_row["first_name"]  or "",
-                "last_name":       _cust_row["last_name"]   or "",
-                "company_name":    _cust_row["company_name"] or "",
-                "phone":           _cust_row["phone"]        or "",
-                "email":           _cust_row["email"]        or "",
-                "address":         _cust_row["address"]      or "",
-                "city":            _cust_row["city"]         or "",
-                "state":           _cust_row["state"]        or "",
-                "zip":             _cust_row["zip"]          or "",
-                "discount_percent": float(_cust_row["discount_percent"] or 0),
-                "discount_type":   _cust_row["discount_type"] or "PERCENT",
-            })
-
         ps = get_printer_setting(self.db)
-        if is_estimate:
-            import tempfile as _tf
-            _fd, pdf = _tf.mkstemp(suffix=".pdf", prefix="EST_")
-            os.close(_fd)
-        else:
-            pdf = build_invoice_pdf_path(self.inv_dir,fd["date"],company=fd["company"],
-                                         first=fd["first"],last=fd["last"],customer_name=cname,
-                                         is_estimate=False,inv_num=inv_num)
-        generate_invoice_pdf(iid,self.db,pdf)
-        self._editing_id = iid
-        self._ee_type_lbl.setText("ESTIMATE" if is_estimate else "INVOICE")
+        try:
+            if is_estimate:
+                import tempfile as _tf
+                _fd, pdf = _tf.mkstemp(suffix=".pdf", prefix="EST_")
+                os.close(_fd)
+            else:
+                pdf = build_invoice_pdf_path(self.inv_dir,fd["date"],company=fd["company"],
+                                             first=fd["first"],last=fd["last"],customer_name=cname,
+                                             is_estimate=False,inv_num=inv_num)
+            generate_invoice_pdf(iid,self.db,pdf)
+            self._editing_id = iid
+            self._ee_type_lbl.setText("ESTIMATE" if is_estimate else "INVOICE")
+            if ps.get("auto_print"):
+                pname = (ps.get("printer_name") or "").strip()
+                print_pdf(pdf, printer_name=pname, copies=int(ps.get("copies",2)), parent_widget=self, silent=True)
+            if is_estimate:
+                try: os.remove(pdf)
+                except Exception: pass
+        except Exception as pdf_err:
+            import traceback
+            slog(f"[PDF] generation failed: {pdf_err}\n{traceback.format_exc()}")
+            QMessageBox.warning(self, "PDF Warning",
+                f"Invoice was saved successfully but the PDF could not be generated.\n\nError: {pdf_err}")
 
-        # Background sync to get real invoice number
+        # Background sync to get real invoice number, then refresh doc list
         def _bg_sync():
             try: SYNC._flush(); SYNC._pull()
             except Exception: pass
         threading.Thread(target=_bg_sync, daemon=True).start()
 
-        if ps.get("auto_print"):
-            pname = (ps.get("printer_name") or "").strip()
-            print_pdf(pdf, printer_name=pname, copies=int(ps.get("copies",2)), parent_widget=self, silent=True)
-        if is_estimate:
-            try: os.remove(pdf)
-            except Exception: pass
         self.show_screen("doc_list")
+        QTimer.singleShot(4000, lambda: self._on_show_doc_list() if self._current_screen == "doc_list" else None)
 
     # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     #  SCREEN: ACCOUNTS / AR
@@ -4032,7 +4386,7 @@ class App(QMainWindow):
         tb_h = QHBoxLayout(tb); tb_h.setContentsMargins(10,6,10,6); tb_h.setSpacing(8)
         tb_h.addWidget(QLabel("Account:"))
         self._acct_combo = QComboBox(); self._acct_combo.setMinimumWidth(200)
-        self._acct_combo.currentTextChanged.connect(self._acct_selected); tb_h.addWidget(self._acct_combo)
+        self._acct_combo.currentIndexChanged.connect(self._acct_selected_by_index); tb_h.addWidget(self._acct_combo)
         for sym, cb in [("<<",self._acct_first),("<",self._acct_prev),(">",self._acct_next),(">>",self._acct_last)]:
             b = btn(sym,"secondary"); b.setFixedWidth(30); b.clicked.connect(cb); tb_h.addWidget(b)
         tb_h.addSpacing(12)
@@ -4049,8 +4403,9 @@ class App(QMainWindow):
 
         # Customer info section
         info_grp = QGroupBox("Customer Info"); info_grid = QGridLayout(info_grp)
+        self._av_first   = QLineEdit(); self._av_first.setReadOnly(True)
+        self._av_last    = QLineEdit(); self._av_last.setReadOnly(True)
         self._av_name    = QLineEdit(); self._av_name.setReadOnly(True)
-        self._av_contact = QLineEdit(); self._av_contact.setReadOnly(True)
         self._av_phone   = QLineEdit(); self._av_phone.setReadOnly(True)
         self._av_email   = QLineEdit(); self._av_email.setReadOnly(True)
         self._av_addr1   = QLineEdit(); self._av_addr1.setReadOnly(True)
@@ -4058,9 +4413,13 @@ class App(QMainWindow):
         self._av_state   = QLineEdit(); self._av_state.setReadOnly(True)
         self._av_zip     = QLineEdit(); self._av_zip.setReadOnly(True)
         self._av_status  = QLineEdit(); self._av_status.setReadOnly(True)
-        for row_idx,(lbl_txt,w2) in enumerate([("Account Name",self._av_name),("Contact",self._av_contact),
+        self._av_disc    = QLineEdit(); self._av_disc.setReadOnly(True)
+        for row_idx,(lbl_txt,w2) in enumerate([
+                ("First Name",self._av_first),("Last Name",self._av_last),
+                ("Company Name",self._av_name),
                 ("Phone",self._av_phone),("Email",self._av_email),("Address",self._av_addr1),
-                ("City",self._av_city),("State",self._av_state),("ZIP",self._av_zip),("Status",self._av_status)]):
+                ("City",self._av_city),("State",self._av_state),("ZIP",self._av_zip),
+                ("Status",self._av_status),("Discount",self._av_disc)]):
             info_grid.addWidget(QLabel(lbl_txt),row_idx,0); info_grid.addWidget(w2,row_idx,1)
         body_lay.addWidget(info_grp)
 
@@ -4071,6 +4430,7 @@ class App(QMainWindow):
         bal_h.addWidget(self._acct_balance_lbl)
         pay_b = btn("Post Payment","primary"); pay_b.clicked.connect(self._acct_post_payment); bal_h.addWidget(pay_b)
         prt_b = btn("Print Statement","secondary"); prt_b.clicked.connect(self._acct_print_statement); bal_h.addWidget(prt_b)
+        rcl_b = btn("Recalculate Balance","secondary"); rcl_b.clicked.connect(self._acct_recalculate_balance); bal_h.addWidget(rcl_b)
         bal_h.addStretch(); body_lay.addLayout(bal_h)
 
         # Customer History table (invoices + payments combined)
@@ -4092,40 +4452,101 @@ class App(QMainWindow):
         hist_lay.addWidget(self._acct_hist_table); body_lay.addWidget(hist_grp)
         body_lay.addStretch()
 
+    @staticmethod
+    def _acct_disp_name(row):
+        is_indv = row["is_individual"] if "is_individual" in row.keys() else 0
+        co = row["company_name"] or ""
+        if is_indv:
+            return f"{row['first_name'] or ''} {row['last_name'] or ''}".strip() or co
+        return co
+
     def _on_show_account_setup(self, company_name=None):
         self._set_page_title("Accounts")
-        self._acct_names = [r[0] for r in self.db.execute("SELECT company_name FROM accounts ORDER BY company_name").fetchall()]
+        rows = self.db.execute("SELECT * FROM accounts ORDER BY company_name").fetchall()
+        self._acct_names = [r["company_name"] for r in rows]
+        self._acct_display_names = [self._acct_disp_name(r) for r in rows]
         self._acct_combo.blockSignals(True)
-        self._acct_combo.clear(); self._acct_combo.addItems(self._acct_names)
+        self._acct_combo.clear()
+        for dn in self._acct_display_names: self._acct_combo.addItem(dn)
         if company_name and company_name in self._acct_names:
             self._acct_index = self._acct_names.index(company_name)
-            self._acct_combo.setCurrentText(company_name)
+            self._acct_combo.setCurrentIndex(self._acct_index)
         elif self._acct_names:
             self._acct_index = 0; self._acct_combo.setCurrentIndex(0)
         self._acct_combo.blockSignals(False)
         if self._acct_names: self._load_acct(self._acct_names[self._acct_index])
 
-    def _acct_selected(self, name):
-        if name and name in self._acct_names:
-            self._acct_index = self._acct_names.index(name); self._load_acct(name)
+    def _acct_selected_by_index(self, idx):
+        if not hasattr(self, '_acct_names') or idx < 0 or idx >= len(self._acct_names): return
+        self._acct_index = idx; self._load_acct(self._acct_names[idx])
+
+    def _acct_selected(self, display_name):
+        if not hasattr(self, '_acct_display_names'): return
+        if display_name in self._acct_display_names:
+            idx = self._acct_display_names.index(display_name)
+            self._acct_index = idx; self._load_acct(self._acct_names[idx])
 
     def _load_acct(self, company_name):
         row = self.db.execute("SELECT * FROM accounts WHERE company_name=?",(company_name,)).fetchone()
         if not row: return
-        self._av_name.setText(row["company_name"] or "")
-        self._av_contact.setText(row["contact_name"] or "")
+        is_indv = row["is_individual"] if "is_individual" in row.keys() else 0
+        self._av_first.setText((row["first_name"] if "first_name" in row.keys() else "") or "")
+        self._av_last.setText((row["last_name"]  if "last_name"  in row.keys() else "") or "")
+        self._av_name.setText("" if is_indv else (row["company_name"] or ""))
         self._av_phone.setText(row["phone"] or ""); self._av_email.setText(row["email"] or "")
         self._av_addr1.setText(row["address1"] or ""); self._av_city.setText(row["city"] or "")
         self._av_state.setText(row["state"] or ""); self._av_zip.setText(row["zip"] or "")
         self._av_status.setText(row["account_status"] or "Active")
-        bal = row["total_owed"] or 0.0
-        self._acct_balance_lbl.setText(f"Balance Owed: ${bal:,.2f}")
+        disc_pct  = float(row["discount_percent"] if "discount_percent" in row.keys() else 0) or 0.0
+        disc_type = (row["discount_type"] if "discount_type" in row.keys() else "LINE") or "LINE"
+        if disc_pct:
+            _disc_labels = {"LINE":f"{disc_pct:.0f}% off each line","TOTAL":f"{disc_pct:.0f}% off total",
+                            "FLAT_LINE":f"${disc_pct:.2f} off each line","FLAT_TOTAL":f"${disc_pct:.2f} off total"}
+            self._av_disc.setText(_disc_labels.get(disc_type.upper(), f"{disc_pct:.0f}% off each line"))
+        else:
+            self._av_disc.setText("None")
         self._refresh_acct_history(company_name)
+
+    def _acct_recalculate_balance(self):
+        """Rebuild account_history charges from actual invoices, then recompute balance."""
+        if not self._acct_names or self._acct_index < 0: return
+        company_name = self._acct_names[self._acct_index]
+        if QMessageBox.question(self, "Recalculate Balance",
+                f"Rebuild charge history for '{company_name}' from actual invoices?\n\n"
+                "This will remove any orphaned charges and re-sync from real invoice data.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                ) != QMessageBox.StandardButton.Yes: return
+        # Delete all charge entries for this account — payments are kept
+        self.db.execute(
+            "DELETE FROM account_history WHERE UPPER(company_name)=UPPER(?) AND type='charge'",
+            (company_name,))
+        # Re-insert from actual CHARGE invoices in the database
+        inv_rows = self.db.execute(
+            "SELECT invoice_id, invoice_date, amount_cents FROM invoices "
+            "WHERE (UPPER(company_name)=UPPER(?) OR UPPER(account_id)=UPPER(?)) "
+            "AND payment_method='CHARGE' AND is_estimate=0",
+            (company_name, company_name)).fetchall()
+        for inv in inv_rows:
+            self.db.execute(
+                "INSERT OR IGNORE INTO account_history(company_name,entry_date,type,amount,invoice_id) "
+                "VALUES(?,?,?,?,?)",
+                (company_name, inv["invoice_date"] or now_iso()[:10],
+                 "charge", inv["amount_cents"] / 100.0, inv["invoice_id"]))
+        self.db.commit()
+        self._refresh_acct_history(company_name)
+        QMessageBox.information(self, "Done", "Balance recalculated from invoice records.")
 
     def _refresh_acct_history(self, company_name):
         """Populate Customer History with invoices and payments merged by date."""
-        bal = self.db.execute("SELECT total_owed FROM accounts WHERE company_name=?",(company_name,)).fetchone()
-        bal_val = bal["total_owed"] if bal else 0.0
+        # Compute balance from account_history (charges - payments) so it's always accurate
+        # even if accounts.total_owed drifted due to prior sync bugs.
+        bal_row = self.db.execute(
+            "SELECT COALESCE(SUM(CASE WHEN type='charge' THEN amount ELSE -amount END),0) as bal "
+            "FROM account_history WHERE UPPER(company_name)=UPPER(?) AND type IN ('charge','payment')",
+            (company_name,)).fetchone()
+        bal_val = bal_row["bal"] if bal_row else 0.0
+        # Also sync accounts.total_owed so it stays in step
+        self.db.execute("UPDATE accounts SET total_owed=? WHERE UPPER(company_name)=UPPER(?)",(bal_val,company_name))
         self._acct_balance_lbl.setText(f"Balance Owed: ${bal_val:,.2f}")
 
         # Collect all invoice UUIDs referenced in payments (to flag paid invoices)
@@ -4383,31 +4804,130 @@ class App(QMainWindow):
         self._acct_edit_dialog(self._acct_names[self._acct_index])
 
     def _acct_edit_dialog(self, existing_name):
-        dlg = QDialog(self); dlg.setWindowTitle("Account" if existing_name else "New Account")
-        dlg.setMinimumWidth(460); lay = QVBoxLayout(dlg); form = QFormLayout()
+        import uuid as _uuid
+        dlg = QDialog(self); dlg.setWindowTitle("Edit Account" if existing_name else "New Account")
+        dlg.setMinimumWidth(480); lay = QVBoxLayout(dlg); form = QFormLayout()
         fields = {}
         row = self.db.execute("SELECT * FROM accounts WHERE company_name=?",(existing_name,)).fetchone() if existing_name else None
-        def fe(key, default=""):
-            e = QLineEdit(str(row[key] if row and row[key] else default))
-            fields[key]=e; return e
-        form.addRow("Account Name:", fe("company_name")); form.addRow("Contact:", fe("contact_name"))
-        form.addRow("Phone:", fe("phone")); form.addRow("Email:", fe("email"))
-        form.addRow("Address:", fe("address1")); form.addRow("City:", fe("city"))
-        form.addRow("State:", fe("state")); form.addRow("ZIP:", fe("zip"))
+        is_indv_existing = bool(row["is_individual"] if row and "is_individual" in row.keys() else 0)
+
+        def fe(key, default="", upper=True):
+            # For individuals editing, show blank company (not the internal UUID key)
+            if key == "company_name" and is_indv_existing:
+                val = ""
+            else:
+                val = str(row[key] if row and key in row.keys() and row[key] else default)
+            e = QLineEdit(val)
+            if upper: _upper_entry(e)
+            fields[key] = e; return e
+
+        form.addRow("First Name:",   fe("first_name"))
+        form.addRow("Last Name:",    fe("last_name"))
+        form.addRow("Company Name:", fe("company_name"))
+
+        # Phone with auto-dash formatting
+        phone_e = fe("phone", upper=False)
+        def _fmt_phone(txt):
+            digits = "".join(c for c in txt if c.isdigit())[:10]
+            if len(digits) >= 7:   fmt = f"{digits[:3]}-{digits[3:6]}-{digits[6:]}"
+            elif len(digits) >= 4: fmt = f"{digits[:3]}-{digits[3:]}"
+            else:                  fmt = digits
+            if fmt != txt:
+                pos = phone_e.cursorPosition()
+                phone_e.blockSignals(True); phone_e.setText(fmt); phone_e.blockSignals(False)
+                phone_e.setCursorPosition(min(pos, len(fmt)))
+        phone_e.textChanged.connect(_fmt_phone)
+        form.addRow("Phone:", phone_e)
+
+        form.addRow("Email:",   fe("email", upper=False))
+        form.addRow("Address:", fe("address1"))
+
+        city_e  = fe("city");  state_e = fe("state");  zip_e = fe("zip")
+
+        def _zip_lookup(txt):
+            digits = "".join(c for c in txt if c.isdigit())
+            if len(digits) != 5: return
+            try:
+                import requests as _req
+                r = _req.get(f"https://api.zippopotam.us/us/{digits}", timeout=3)
+                if r.status_code == 200:
+                    places = r.json().get("places", [])
+                    if places:
+                        if not city_e.text().strip():
+                            city_e.setText(places[0].get("place name", "").upper())
+                        if not state_e.text().strip():
+                            state_e.setText(places[0].get("state abbreviation", "").upper())
+            except Exception: pass
+        zip_e.textChanged.connect(_zip_lookup)
+
+        form.addRow("City:",  city_e)
+        form.addRow("State:", state_e)
+        form.addRow("ZIP:",   zip_e)
+
+        # Discount
+        disc_e = QLineEdit(str(row["discount_percent"] if row and "discount_percent" in row.keys() and row["discount_percent"] else "0"))
+        disc_e.setPlaceholderText("0")
+        _dt = (row["discount_type"] if row and "discount_type" in row.keys() else "") or "LINE"
+        disc_type_cmb = QComboBox()
+        disc_type_cmb.addItems(["% each line","% of total","$ each line","$ of total"])
+        _dt_map = {"LINE":0,"TOTAL":1,"FLAT_LINE":2,"FLAT_TOTAL":3}
+        disc_type_cmb.setCurrentIndex(_dt_map.get(_dt.upper(), 0))
+        disc_row = QHBoxLayout(); disc_row.addWidget(disc_e,1); disc_row.addWidget(disc_type_cmb)
+        disc_w = QWidget(); disc_w.setLayout(disc_row)
+        form.addRow("Discount:", disc_w)
+
         lay.addLayout(form)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
         bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
         if dlg.exec() != QDialog.DialogCode.Accepted: return
-        name = fields["company_name"].text().strip().upper()
-        if not name: QMessageBox.warning(self,"Required","Account Name is required."); return
+
+        first = fields["first_name"].text().strip().upper()
+        last  = fields["last_name"].text().strip().upper()
+        co    = fields["company_name"].text().strip().upper()
+
+        if not co and not (first or last):
+            QMessageBox.warning(self, "Required", "Please enter at least a First Name or Company Name."); return
+
+        # Determine storage key
+        is_individual = 0
+        if co:
+            name = co
+        else:
+            # Individual — keep existing key if editing, else generate new one
+            is_individual = 1
+            if is_indv_existing and existing_name:
+                name = existing_name  # keep the same internal key
+            else:
+                name = f"__INDV_{_uuid.uuid4().hex[:10].upper()}"
+
+        try:
+            disc_pct = float(disc_e.text().strip() or "0")
+        except ValueError:
+            disc_pct = 0.0
+        disc_type = ["LINE","TOTAL","FLAT_LINE","FLAT_TOTAL"][min(disc_type_cmb.currentIndex(), 3)]
+
         self.db.execute("""
-            INSERT INTO accounts(company_name,total_owed,updated_at,contact_name,phone,email,address1,city,state,zip)
-            VALUES(?,0,?,?,?,?,?,?,?,?)
+            INSERT INTO accounts(company_name,total_owed,updated_at,first_name,last_name,
+                is_individual,phone,email,address1,city,state,zip,discount_percent,discount_type)
+            VALUES(?,0,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(company_name) DO UPDATE SET
-                contact_name=excluded.contact_name,phone=excluded.phone,email=excluded.email,
-                address1=excluded.address1,city=excluded.city,state=excluded.state,zip=excluded.zip,updated_at=excluded.updated_at
-        """,(name,now_iso(),fields["contact_name"].text(),fields["phone"].text(),fields["email"].text(),
-             fields["address1"].text(),fields["city"].text(),fields["state"].text(),fields["zip"].text()))
+                first_name=excluded.first_name,last_name=excluded.last_name,
+                is_individual=excluded.is_individual,
+                phone=excluded.phone,email=excluded.email,
+                address1=excluded.address1,city=excluded.city,state=excluded.state,zip=excluded.zip,
+                discount_percent=excluded.discount_percent,discount_type=excluded.discount_type,
+                updated_at=excluded.updated_at
+        """,(name, now_iso(), first, last, is_individual,
+             fields["phone"].text(), fields["email"].text(),
+             fields["address1"].text(), fields["city"].text(),
+             fields["state"].text(), fields["zip"].text(),
+             disc_pct, disc_type))
+        # Sync discount to customers table using mobile-compatible types (FLAT/PERCENT)
+        _dt_mob = "FLAT" if "FLAT" in disc_type else "PERCENT"
+        self.db.execute(
+            "UPDATE customers SET discount_percent=?,discount_type=?,updated_at=? "
+            "WHERE UPPER(company_name)=UPPER(?)",
+            (disc_pct, _dt_mob, now_iso(), name))
         self.db.commit(); self._on_show_account_setup(name)
 
     def _delete_acct_action(self):
@@ -5242,7 +5762,7 @@ class App(QMainWindow):
             for il in self.db.execute(
                 f"SELECT invoice_id, result FROM invoice_lines "
                 f"WHERE invoice_id IN ({ph}) "
-                f"AND service NOT IN ('Credit Card Fee','Certificate') "
+                f"AND service NOT IN ('Credit Card Fee','Card Fee','CC Fee','Card Surcharge','Certificate') "
                 f"AND result IS NOT NULL AND result!=''",
                 inv_ids
             ).fetchall():
@@ -5711,7 +6231,16 @@ class App(QMainWindow):
         self._biz["website"].setPlaceholderText("https://")
         cl.addWidget(_lw_web); cl.addWidget(self._biz["website"])
         self._biz["card_fee"] = QLineEdit(str(biz.get("card_fee", "5.00")))
-        self._biz_notice = QTextEdit(biz.get("invoice_notice","")); self._biz_notice.setVisible(False)
+        saved_surcharge_type = biz.get("card_surcharge_type", "fixed")
+        self._biz_surcharge_type = QComboBox()
+        self._biz_surcharge_type.addItem("Fixed ($)", "fixed")
+        self._biz_surcharge_type.addItem("Percent (%)", "percent")
+        self._biz_surcharge_type.setCurrentIndex(1 if saved_surcharge_type == "percent" else 0)
+        _lw_notice = QLabel("Invoice Notice (footer text)")
+        _lw_notice.setStyleSheet(f"color:{CLR_TSUB};font-size:9pt;font-weight:600;")
+        self._biz_notice = QTextEdit(biz.get("invoice_notice",""))
+        self._biz_notice.setMaximumHeight(80)
+        cl.addWidget(_lw_notice); cl.addWidget(self._biz_notice)
         self._biz_logo = QLineEdit(biz.get("logo_path","")); self._biz_logo.setVisible(False)
         sv_row = QHBoxLayout()
         _sv = QPushButton("Save")
@@ -5786,7 +6315,9 @@ class App(QMainWindow):
         save_svc_b = btn("Save Services", "primary"); save_svc_b.clicked.connect(self._save_services); ts_lay.addWidget(save_svc_b)
         ts_lay.addSpacing(16)
         ts_lay.addWidget(QLabel("Card Surcharge", font=QFont("Segoe UI",10,QFont.Weight.Bold)))
-        card_fee_form = QFormLayout(); card_fee_form.addRow("Card fee ($):", self._biz["card_fee"])
+        card_fee_form = QFormLayout()
+        card_fee_form.addRow("Surcharge type:", self._biz_surcharge_type)
+        card_fee_form.addRow("Surcharge amount:", self._biz["card_fee"])
         ts_lay.addLayout(card_fee_form)
         save_fee_b = btn("Save Card Fee", "primary"); save_fee_b.clicked.connect(self._save_biz); ts_lay.addWidget(save_fee_b)
         ts_lay.addStretch(); self._stt_stack.addWidget(t_svc)  # index 2
@@ -6097,6 +6628,7 @@ class App(QMainWindow):
         biz["qr_path"]   = self._biz_qr.text() if hasattr(self, "_biz_qr") else ""
         try: biz["card_fee"] = float(biz.get("card_fee",5.0))
         except: biz["card_fee"] = 5.0
+        biz["card_surcharge_type"] = self._biz_surcharge_type.currentData()
         # Compose address_line2 for PDF/legacy compatibility
         csz_parts = [biz.get("city","").strip(), biz.get("state","").strip(), biz.get("zip","").strip()]
         biz["address_line2"] = " ".join(p for p in csz_parts if p)
@@ -6112,6 +6644,8 @@ class App(QMainWindow):
             "co_email":             biz.get("email",""),
             "co_ard":               biz.get("ard",""),
             "invoice_notice":       biz.get("invoice_notice",""),
+            "card_surcharge_value": str(biz.get("card_fee","")),
+            "card_surcharge_type":  biz.get("card_surcharge_type","fixed"),
         })
         self._refresh_sidebar_name()
         # Refresh logo preview if on logo tab
@@ -6305,9 +6839,9 @@ class App(QMainWindow):
                 res_item.setFont(QFont("Segoe UI", _zsz, QFont.Weight.Bold))
             self._cust_table.setItem(r, 4, res_item)
             disc = row["discount_percent"] or 0.0
-            try: disc_type = (row["discount_type"] or "PERCENT").upper()
-            except Exception: disc_type = "PERCENT"
-            disc_str = (f"${disc:.2f} off" if disc_type == "FLAT" else f"{disc:.0f}%") if disc else "—"
+            try: disc_type = (row["discount_type"] or "LINE").upper()
+            except Exception: disc_type = "LINE"
+            disc_str = (f"{disc:.0f}% / total" if disc_type == "TOTAL" else f"{disc:.0f}% / line") if disc else "—"
             disc_item = QTableWidgetItem(disc_str)
             disc_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
             if disc: disc_item.setForeground(QColor(CLR_PASS))
@@ -6419,14 +6953,16 @@ class App(QMainWindow):
             else:
                 vrow = self.db.execute("SELECT * FROM vehicles WHERE plate=? AND customer_id=? AND (vin='' OR vin IS NULL)", (v["plate"], cid)).fetchone()
             if not vrow: return
-            ed = QDialog(dlg); ed.setWindowTitle("Edit Vehicle"); ed.resize(400,320)
+            ed = QDialog(dlg); ed.setWindowTitle("Edit Vehicle"); ed.resize(400,360)
             el = QVBoxLayout(ed); ef = QFormLayout()
             ep = QLineEdit(vrow["plate"] or ""); ey = QLineEdit(vrow["year"] or "")
             emk = QLineEdit(vrow["make"] or ""); emd = QLineEdit(vrow["model"] or "")
             evin = QLineEdit(vrow["vin"] or "")
-            for w2 in (ep,ey,emk,emd,evin): w2.setMinimumWidth(200)
+            etrk = QLineEdit((vrow["truck_number"] if "truck_number" in vrow.keys() else "") or "")
+            for w2 in (ep,ey,emk,emd,evin,etrk): w2.setMinimumWidth(200); _upper_entry(w2)
             ef.addRow("Plate:", ep); ef.addRow("Year:", ey)
-            ef.addRow("Make:", emk); ef.addRow("Model:", emd); ef.addRow("VIN:", evin)
+            ef.addRow("Make:", emk); ef.addRow("Model:", emd)
+            ef.addRow("VIN:", evin); ef.addRow("Truck #:", etrk)
             int_cb = QComboBox()
             for lbl_txt, _ in _INTERVAL_OPTS: int_cb.addItem(lbl_txt)
             cur_int = vrow["test_interval_days"] if "test_interval_days" in vrow.keys() else None
@@ -6471,15 +7007,17 @@ class App(QMainWindow):
                 qd = due_edit.date()
                 new_due = f"{qd.year():04d}-{qd.month():02d}-{qd.day():02d}"
             self.db.execute(
-                "UPDATE vehicles SET plate=?,year=?,make=?,model=?,vin=?,test_interval_days=?,next_test_due=?,updated_at=? WHERE vehicle_id=?",
+                "UPDATE vehicles SET plate=?,year=?,make=?,model=?,vin=?,truck_number=?,test_interval_days=?,next_test_due=?,updated_at=? WHERE vehicle_id=?",
                 (ep.text().strip().upper(), ey.text().strip(), emk.text().strip().upper(),
                  emd.text().strip().upper(), evin.text().strip().upper(),
+                 etrk.text().strip().upper(),
                  new_interval, new_due, now_iso(), vrow["vehicle_id"]))
             self.db.commit()
             enqueue(self.db,"vehicle","upsert",{"vehicle_id":vrow["vehicle_id"],
                 "customer_id":cid,"plate":ep.text().strip().upper(),"vin":evin.text().strip().upper(),
                 "make":emk.text().strip().upper(),"model":emd.text().strip().upper(),
-                "year":ey.text().strip(),"test_interval_days":new_interval,
+                "year":ey.text().strip(),"truck_number":etrk.text().strip().upper(),
+                "test_interval_days":new_interval,
                 "next_test_due":new_due,"next_due":new_due,"service_interval_days":new_interval})
             dlg.accept(); self._cust_view()
         def _delete_vehicle():
@@ -6537,9 +7075,9 @@ class App(QMainWindow):
             e=QLineEdit(val or ""); fields[key]=e; form.addRow(f"{lbl_txt}:",e)
         disc_val = str(cust["discount_percent"] or "").rstrip("0").rstrip(".") if cust["discount_percent"] else ""
         disc_e = QLineEdit(disc_val); fields["discount_percent"] = disc_e
-        disc_type_cb = QComboBox(); disc_type_cb.addItems(["%  (Percent)", "$  (Flat Amount)"])
-        saved_type = (cust["discount_type"] or "PERCENT").upper()
-        disc_type_cb.setCurrentIndex(0 if saved_type == "PERCENT" else 1)
+        disc_type_cb = QComboBox(); disc_type_cb.addItems(["EACH LINE", "TOTAL"])
+        saved_type = (cust["discount_type"] or "LINE").upper()
+        disc_type_cb.setCurrentIndex(1 if saved_type == "TOTAL" else 0)
         disc_row = QHBoxLayout(); disc_row.addWidget(disc_e); disc_row.addWidget(disc_type_cb)
         disc_widget = QWidget(); disc_widget.setLayout(disc_row)
         form.addRow("Discount:", disc_widget)
@@ -6548,7 +7086,7 @@ class App(QMainWindow):
         bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
         if dlg.exec()!=QDialog.DialogCode.Accepted: return
         disc = float(fields["discount_percent"].text().strip() or 0)
-        disc_type = "PERCENT" if disc_type_cb.currentIndex() == 0 else "FLAT"
+        disc_type = "TOTAL" if disc_type_cb.currentIndex() == 1 else "LINE"
         upsert_customer(self.db,fields["first_name"].text(),fields["last_name"].text(),fields["company_name"].text(),
                         phone=format_phone(fields["phone"].text()),email=fields["email"].text(),address=fields["address"].text(),
                         city=fields["city"].text(),state=fields["state"].text(),zip_=fields["zip"].text(),
@@ -6570,7 +7108,7 @@ class App(QMainWindow):
                              ("phone","Phone"),("email","Email"),("address","Address"),("city","City"),("state","State"),("zip","ZIP")]:
             e=QLineEdit(); fields[key]=e; form.addRow(f"{lbl_txt}:",e)
         disc_e = QLineEdit(); fields["discount_percent"] = disc_e
-        disc_type_cb = QComboBox(); disc_type_cb.addItems(["%  (Percent)", "$  (Flat Amount)"])
+        disc_type_cb = QComboBox(); disc_type_cb.addItems(["EACH LINE", "TOTAL"])
         disc_row2 = QHBoxLayout(); disc_row2.addWidget(disc_e); disc_row2.addWidget(disc_type_cb)
         disc_widget2 = QWidget(); disc_widget2.setLayout(disc_row2)
         form.addRow("Discount:", disc_widget2)
@@ -6579,7 +7117,7 @@ class App(QMainWindow):
         bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
         if dlg.exec()!=QDialog.DialogCode.Accepted: return
         disc = float(fields["discount_percent"].text().strip() or 0)
-        disc_type = "PERCENT" if disc_type_cb.currentIndex() == 0 else "FLAT"
+        disc_type = "TOTAL" if disc_type_cb.currentIndex() == 1 else "LINE"
         cid = upsert_customer(self.db,fields["first_name"].text(),fields["last_name"].text(),fields["company_name"].text(),
                         phone=format_phone(fields["phone"].text()),email=fields["email"].text(),address=fields["address"].text(),
                         city=fields["city"].text(),state=fields["state"].text(),zip_=fields["zip"].text(),
