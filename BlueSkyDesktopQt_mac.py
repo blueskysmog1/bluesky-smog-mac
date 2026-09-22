@@ -7,7 +7,7 @@ import os, sys, json, uuid, sqlite3, threading, time, re, textwrap, urllib.reque
 from pathlib import Path
 from datetime import datetime, timedelta
 
-APP_VERSION = "1.2.27"
+APP_VERSION = "1.2.42"
 _UPDATE_API  = "https://api.github.com/repos/blueskysmog1/bluesky-smog-mac/releases/latest"
 _DOWNLOAD_URL = "https://github.com/blueskysmog1/bluesky-smog-mac/releases/latest/download/BlueSkyDesktop.dmg"
 
@@ -38,11 +38,20 @@ try:
 except ImportError:
     _WIN32_PRINT = False
 
-try:
-    import fitz
-    _FITZ_OK = True
-except ImportError:
-    _FITZ_OK = False
+# fitz (PyMuPDF) is lazy-loaded on first PDF open to keep startup fast
+_fitz      = None
+_FITZ_OK   = False
+
+def _ensure_fitz():
+    global _fitz, _FITZ_OK
+    if _fitz is not None:
+        return _FITZ_OK
+    try:
+        import fitz as _f
+        _fitz = _f; _FITZ_OK = True
+    except ImportError:
+        _FITZ_OK = False
+    return _FITZ_OK
 
 try:
     import requests
@@ -56,11 +65,19 @@ if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         os.environ.setdefault("SSL_CERT_FILE", _ca)
         os.environ.setdefault("REQUESTS_CA_BUNDLE", _ca)
 
-from reportlab.lib.pagesizes import LETTER
-from reportlab.pdfgen import canvas
-from reportlab.lib import colors
-from reportlab.lib.utils import ImageReader
-from reportlab.graphics.barcode import code128
+# reportlab is lazy-loaded on first PDF generation to keep startup fast
+LETTER = None; canvas = None; colors = None; ImageReader = None; code128 = None
+
+def _ensure_reportlab():
+    global LETTER, canvas, colors, ImageReader, code128
+    if LETTER is not None:
+        return
+    from reportlab.lib.pagesizes import LETTER as _L
+    from reportlab.pdfgen import canvas as _cv
+    from reportlab.lib import colors as _col
+    from reportlab.lib.utils import ImageReader as _ir
+    from reportlab.graphics.barcode import code128 as _c128
+    LETTER = _L; canvas = _cv; colors = _col; ImageReader = _ir; code128 = _c128
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  CONFIG & CONSTANTS
@@ -335,6 +352,9 @@ def init_db():
             payload TEXT NOT NULL, created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, val TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS deleted_invoices (
+            invoice_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL
+        );
     """)
     cols = {row[1] for row in c.execute("PRAGMA table_info(invoice_lines)").fetchall()}
     if "remote_item_id" not in cols:
@@ -884,22 +904,38 @@ class SyncEngine:
     def _delete_invoice(self,conn,p):
         iid=p.get("invoice_id","")
         if not iid: return
+        conn.execute("INSERT OR REPLACE INTO deleted_invoices(invoice_id,deleted_at) VALUES(?,datetime('now'))",(iid,))
         conn.execute("DELETE FROM invoice_lines WHERE invoice_id=?",(iid,))
         conn.execute("DELETE FROM account_history WHERE invoice_id=?",(iid,))
         conn.execute("DELETE FROM invoices WHERE invoice_id=?",(iid,)); conn.commit()
     def _merge_customer(self,conn,p):
         try:
-            first=p.get("first_name",""); last=p.get("last_name",""); company=p.get("company_name","")
-            name=(p.get("name","")).strip()
+            first=(p.get("first_name") or "").strip()
+            last=(p.get("last_name") or "").strip()
+            company=(p.get("company_name") or "").strip()
+            name=(p.get("name") or "").strip()
             if name and not first and not last and not company:
                 parts=name.strip().split(" ",1); first=parts[0]; last=parts[1] if len(parts)>1 else ""
-            cid=(p.get("customer_id","")).strip()
+            cid=(p.get("customer_id") or "").strip()
             disc=float(p.get("discount_percent") or 0)
             disc_type=str(p.get("discount_type") or "PERCENT").upper()
             if disc_type not in ("PERCENT","FLAT"): disc_type="PERCENT"
-            upsert_customer(conn,first,last,company,phone=format_phone(p.get("phone")or""),
-                            email=p.get("email")or"",address=p.get("address")or"",city=p.get("city")or"",
-                            state=p.get("state")or"",zip_=p.get("zip")or"",synced=1,
+            # Non-destructive merge: blank incoming fields never overwrite existing non-blank data.
+            # This prevents desktop events with missing contact info from wiping mobile-entered data.
+            existing = conn.execute("SELECT * FROM customers WHERE customer_id=?",(cid,)).fetchone() if cid else None
+            def _keep(incoming, field):
+                v=(incoming or "").strip()
+                if v: return v
+                return (existing[field] or "").strip() if existing else ""
+            phone   = _keep(p.get("phone"),   "phone")
+            email   = _keep(p.get("email"),   "email")
+            address = _keep(p.get("address"), "address")
+            city    = _keep(p.get("city"),    "city")
+            state   = _keep(p.get("state"),   "state")
+            zip_    = _keep(p.get("zip"),     "zip")
+            upsert_customer(conn,first,last,company,phone=format_phone(phone),
+                            email=email,address=address,city=city,
+                            state=state,zip_=zip_,synced=1,
                             customer_id=cid if cid else None,
                             discount_percent=disc, discount_type=disc_type)
         except Exception as e: slog(f"[Merge] customer FAILED err={e}")
@@ -907,6 +943,11 @@ class SyncEngine:
         try:
             iid=p.get("invoice_id","")
             if not iid: return
+            # Reject invoices that were deleted locally — tombstone wins, re-push the delete
+            if conn.execute("SELECT 1 FROM deleted_invoices WHERE invoice_id=?",(iid,)).fetchone():
+                conn.execute("DELETE FROM invoice_lines WHERE invoice_id=?",(iid,))
+                conn.execute("DELETE FROM invoices WHERE invoice_id=?",(iid,))
+                conn.commit(); return
             existing=conn.execute("SELECT from_mobile,synced,status,invoice_number FROM invoices WHERE invoice_id=?",(iid,)).fetchone()
             incoming_num=int(p.get("invoice_number",0)or 0)
             if existing and not existing["from_mobile"]:
@@ -1060,7 +1101,8 @@ def print_pdf(pdf_path, printer_name="", copies=1, parent_widget=None, silent=Fa
                     break
         printer.setCopyCount(copies)
         printer.setFullPage(True)
-        doc = fitz.open(pdf_path)
+        _ensure_fitz()
+        doc = _fitz.open(pdf_path)
         painter = QPainter()
         if not painter.begin(printer):
             raise RuntimeError(f"Could not open printer '{printer.printerName()}'")
@@ -1069,7 +1111,7 @@ def print_pdf(pdf_path, printer_name="", copies=1, parent_widget=None, silent=Fa
         for page_num in range(len(doc)):
             if page_num > 0: printer.newPage()
             page = doc[page_num]
-            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+            pix = page.get_pixmap(matrix=_fitz.Matrix(zoom, zoom), alpha=False)
             img = QImage(bytes(pix.samples), pix.width, pix.height,
                          pix.stride, QImage.Format.Format_RGB888)
             painter.drawImage(QRect(0, 0, printer.width(), printer.height()), img)
@@ -1125,6 +1167,7 @@ def _best_vehicle_for_invoice(conn,inv):
     return None
 
 def draw_header(c, biz, title, subtitle=""):
+    _ensure_reportlab()
     w, h = LETTER
     # ── Logo (left) ──────────────────────────────────────────────────────────
     logo_path = (biz.get("logo_path") or "").strip(); biz_x = 36
@@ -1177,6 +1220,7 @@ def generate_invoice_pdf(invoice_id, conn, out_path):
     lines=conn.execute("SELECT * FROM invoice_lines WHERE invoice_id=? ORDER BY id",(invoice_id,)).fetchall()
     biz=get_business_settings(conn)
     cust=conn.execute("SELECT * FROM customers WHERE customer_id=?",(inv["customer_id"],)).fetchone()
+    _ensure_reportlab()
     os.makedirs(os.path.dirname(out_path),exist_ok=True)
     c=canvas.Canvas(out_path,pagesize=LETTER); w,h=LETTER
     is_estimate=bool(inv["is_estimate"]); title="ESTIMATE" if is_estimate else "INVOICE"
@@ -2157,16 +2201,16 @@ class PdfViewerDialog(QDialog):
         QTimer.singleShot(100, self._render)
 
     def _render(self):
-        if not _FITZ_OK:
+        if not _ensure_fitz():
             lbl = QLabel("PDF viewer requires PyMuPDF.\n\nRun: pip install pymupdf")
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter); self._vlay.addWidget(lbl); return
         try:
-            doc = fitz.open(self.pdf_path)
+            doc = _fitz.open(self.pdf_path)
             for page_num in range(len(doc)):
                 page = doc[page_num]
                 zoom = min(2.0, (self._scroll.width() - 30) / page.rect.width)
                 zoom = max(1.0, zoom)
-                pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+                pix = page.get_pixmap(matrix=_fitz.Matrix(zoom, zoom), alpha=False)
                 img = QImage(pix.samples, pix.width, pix.height,
                              pix.stride, QImage.Format.Format_RGB888)
                 pm = QPixmap.fromImage(img)
@@ -2336,6 +2380,25 @@ class App(QMainWindow):
         try: set_setting(self.db,"window_geometry", bytes(self.saveGeometry()).hex())
         except Exception: pass
         SYNC.stop()
+        # Purge ghost invoices (voided/cancelled on mobile but not hard-deleted)
+        try:
+            self.db.execute(
+                "DELETE FROM invoice_lines WHERE invoice_id IN "
+                "(SELECT invoice_id FROM invoices WHERE UPPER(COALESCE(status,'')) "
+                "IN ('VOID','DELETED','CANCELLED','VOIDED'))"
+            )
+            self.db.execute(
+                "DELETE FROM account_history WHERE invoice_id IN "
+                "(SELECT invoice_id FROM invoices WHERE UPPER(COALESCE(status,'')) "
+                "IN ('VOID','DELETED','CANCELLED','VOIDED'))"
+            )
+            self.db.execute(
+                "DELETE FROM invoices WHERE UPPER(COALESCE(status,'')) "
+                "IN ('VOID','DELETED','CANCELLED','VOIDED')"
+            )
+            self.db.commit()
+        except Exception:
+            pass
         # Clear token so next launch always requires sign-in (keeps username/password pre-filled)
         if not getattr(self, '_logging_out', False):
             creds = load_creds()
@@ -2707,6 +2770,10 @@ class App(QMainWindow):
         self.refresh_doc_list()
 
     def refresh_doc_list(self):
+        # Preserve scroll position so sync refreshes don't yank the user back to the bottom
+        _vbar = self._dl_table.verticalScrollBar()
+        _prev_scroll = _vbar.value()
+        _was_at_bottom = _prev_scroll >= _vbar.maximum() - 4
         q     = self._dl_search.text().strip().lower()
         today = datetime.today().strftime("%Y-%m-%d")
         sql   = ("SELECT invoice_id,invoice_number,invoice_date,plate,vin,year,make,model,"
@@ -2815,7 +2882,10 @@ class App(QMainWindow):
 
         self._dl_table.setUpdatesEnabled(True)
         self._dl_count_lbl.setText(f"{shown} Documents")
-        self._dl_table.scrollToBottom()
+        if _was_at_bottom:
+            self._dl_table.scrollToBottom()
+        else:
+            self._dl_table.verticalScrollBar().setValue(_prev_scroll)
 
     def _dl_selected_id(self):
         rows = self._dl_table.selectedItems()
@@ -2859,6 +2929,7 @@ class App(QMainWindow):
         if pdf_row and pdf_row["pdf_path"] and os.path.exists(pdf_row["pdf_path"]):
             try: os.remove(pdf_row["pdf_path"])
             except: pass
+        self.db.execute("INSERT OR REPLACE INTO deleted_invoices(invoice_id,deleted_at) VALUES(?,datetime('now'))",(iid,))
         self.db.execute("DELETE FROM invoice_lines WHERE invoice_id=?",(iid,))
         self.db.execute("DELETE FROM account_history WHERE invoice_id=?",(iid,))
         self.db.execute("DELETE FROM invoices WHERE invoice_id=?",(iid,)); self.db.commit()
@@ -3108,7 +3179,14 @@ class App(QMainWindow):
         self._acct_veh_no_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         acct_bl.addWidget(_lbl("Account")); acct_bl.addWidget(self._acct_cust_cmb)
         acct_bl.addSpacing(6)
-        acct_bl.addWidget(_lbl("Vehicles")); acct_bl.addWidget(self._acct_veh_no_lbl)
+        _veh_hdr = QHBoxLayout()
+        _veh_hdr.addWidget(_lbl("Vehicles"))
+        _veh_hdr.addStretch()
+        _add_veh_btn = btn("+ Add Vehicle", "secondary")
+        _add_veh_btn.clicked.connect(self._acct_add_vehicle)
+        _veh_hdr.addWidget(_add_veh_btn)
+        acct_bl.addLayout(_veh_hdr)
+        acct_bl.addWidget(self._acct_veh_no_lbl)
         acct_bl.addWidget(self._acct_veh_tbl); self._acct_veh_tbl.hide()
         acct_bl.addStretch()
         grid.addWidget(acct_c, 0, 1)
@@ -3192,12 +3270,25 @@ class App(QMainWindow):
             f"QPushButton:hover{{background:{CLR_NAVY};}}")
         def _add_to_invoice():
             self._f_svc.setCurrentText(self._veh_svc_cmb.currentText())
+            disc_txt = self._veh_disc_edit.text().strip()
+            if disc_txt:
+                self._f_disc.setText(disc_txt)
             self._add_line()
+            self._veh_disc_edit.clear()
         add_to_inv_btn.clicked.connect(_add_to_invoice)
         veh_bl.addLayout(r1)
         veh_bl.addWidget(_lbl("VIN")); veh_bl.addWidget(self._f_vin)
         veh_bl.addLayout(r3); veh_bl.addLayout(r4)
-        veh_bl.addWidget(_lbl("Service / Test type")); veh_bl.addWidget(self._veh_svc_cmb)
+        # Service / Test type + Discount side by side
+        _svc_disc_row = QHBoxLayout(); _svc_disc_row.setSpacing(6)
+        _svc_col = QVBoxLayout(); _svc_col.setSpacing(2)
+        _svc_col.addWidget(_lbl("Service / Test type")); _svc_col.addWidget(self._veh_svc_cmb)
+        _disc_col = QVBoxLayout(); _disc_col.setSpacing(2)
+        self._veh_disc_edit = QLineEdit(); self._veh_disc_edit.setPlaceholderText("0.00")
+        self._veh_disc_edit.setFixedWidth(100)
+        _disc_col.addWidget(_lbl("Discount ($)")); _disc_col.addWidget(self._veh_disc_edit)
+        _svc_disc_row.addLayout(_svc_col, 1); _svc_disc_row.addLayout(_disc_col, 0)
+        veh_bl.addLayout(_svc_disc_row)
         veh_bl.addWidget(add_to_inv_btn); veh_bl.addStretch()
         self._f_vin.editingFinished.connect(self._vin_lookup)
         self._f_plate.editingFinished.connect(self._plate_lookup)
@@ -3659,6 +3750,137 @@ class App(QMainWindow):
                     if item: item.setBackground(clr)
         tbl.resizeColumnsToContents()
         tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+
+    def _acct_add_vehicle(self):
+        if not hasattr(self, '_acct_cust_cur_key') or not self._acct_cust_cur_key:
+            QMessageBox.warning(self, "No Account", "Select an account first."); return
+        company_key = self._acct_cust_cur_key
+
+        dlg = QDialog(self); dlg.setWindowTitle("Add Vehicle to Account")
+        dlg.setMinimumWidth(380)
+        fld_style = "QLineEdit{border:1px solid #B8CCE8;border-radius:6px;padding:6px 10px;font-size:10pt;}"
+        form = QFormLayout(dlg); form.setSpacing(10); form.setContentsMargins(16,16,16,16)
+        f_plate = QLineEdit(); f_plate.setPlaceholderText("License plate")
+        f_vin   = QLineEdit(); f_vin.setPlaceholderText("17-char VIN")
+        f_year  = QLineEdit(); f_year.setPlaceholderText("Year")
+        f_make  = QLineEdit(); f_make.setPlaceholderText("Make")
+        f_model = QLineEdit(); f_model.setPlaceholderText("Model")
+        f_truck = QLineEdit(); f_truck.setPlaceholderText("Truck # (optional)")
+        status_lbl = QLabel(""); status_lbl.setStyleSheet("color:#0369A1;font-size:9pt;")
+        for w in (f_plate, f_vin, f_year, f_make, f_model, f_truck):
+            w.setStyleSheet(fld_style)
+        # Force all fields uppercase
+        for fld in (f_plate, f_vin, f_year, f_make, f_model, f_truck):
+            fld.textChanged.connect(lambda t, f=fld: (f.blockSignals(True), f.setText(t.upper()), f.blockSignals(False)))
+        # NONE checkbox for plate
+        plate_row = QHBoxLayout()
+        plate_row.addWidget(f_plate, 1)
+        no_plate_cb = QCheckBox("NONE")
+        no_plate_cb.setStyleSheet("font-size:9pt;")
+        def _toggle_none_plate(checked):
+            if checked:
+                f_plate.setText("NONE"); f_plate.setEnabled(False)
+            else:
+                f_plate.setText(""); f_plate.setEnabled(True)
+        no_plate_cb.toggled.connect(_toggle_none_plate)
+        plate_row.addWidget(no_plate_cb)
+        plate_w = QWidget(); plate_w.setLayout(plate_row)
+        form.addRow("Plate", plate_w); form.addRow("VIN", f_vin)
+        form.addRow("Year", f_year); form.addRow("Make", f_make)
+        form.addRow("Model", f_model); form.addRow("Truck #", f_truck)
+        form.addRow("", status_lbl)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+
+        def _fill_from_vrow(vrow):
+            if vrow:
+                if not f_vin.text()   and vrow["vin"]:   f_vin.setText(vrow["vin"])
+                if not f_year.text()  and vrow["year"]:  f_year.setText(vrow["year"])
+                if not f_make.text()  and vrow["make"]:  f_make.setText(vrow["make"])
+                if not f_model.text() and vrow["model"]: f_model.setText(vrow["model"])
+                tn = vrow["truck_number"] if "truck_number" in vrow.keys() else ""
+                if not f_truck.text() and tn: f_truck.setText(tn)
+
+        def _on_plate_done():
+            plate = f_plate.text().strip().upper()
+            if not plate or plate == "NONE": return
+            vin = f_vin.text().strip().upper()
+            vrow = self.db.execute(
+                "SELECT * FROM vehicles WHERE UPPER(plate)=?" + (" AND vin=?" if vin else "") +
+                " ORDER BY updated_at DESC LIMIT 1",
+                (plate, vin) if vin else (plate,)).fetchone()
+            if not vrow:
+                vrow = self.db.execute(
+                    "SELECT v.* FROM vehicles v JOIN invoices i ON i.vin=v.vin "
+                    "WHERE UPPER(i.plate)=? ORDER BY i.invoice_date DESC LIMIT 1",
+                    (plate,)).fetchone()
+            if vrow:
+                _fill_from_vrow(vrow)
+                status_lbl.setText("Vehicle found in records.")
+            else:
+                status_lbl.setText("No existing record — fill in details below.")
+
+        def _on_vin_done():
+            vin = f_vin.text().strip().upper()
+            if len(vin) != 17: return
+            vrow = self.db.execute(
+                "SELECT * FROM vehicles WHERE vin=? ORDER BY updated_at DESC LIMIT 1",
+                (vin,)).fetchone()
+            if vrow:
+                _fill_from_vrow(vrow)
+                status_lbl.setText("Vehicle found in records.")
+                return
+            # Fall back to invoice history
+            vrow = self.db.execute(
+                "SELECT v.* FROM vehicles v JOIN invoices i ON i.customer_id=v.customer_id "
+                "WHERE UPPER(i.vin)=? ORDER BY i.invoice_date DESC LIMIT 1", (vin,)).fetchone()
+            if vrow:
+                _fill_from_vrow(vrow); status_lbl.setText("Vehicle found via invoice history."); return
+            # API lookup
+            if requests:
+                status_lbl.setText("Looking up VIN online...")
+                self._acct_veh_vin_worker = VinWorker(vin)
+                def _api_done(yr, mk, md):
+                    if yr and not f_year.text():  f_year.setText(yr)
+                    if mk and not f_make.text():  f_make.setText(mk)
+                    if md and not f_model.text(): f_model.setText(md)
+                    status_lbl.setText("VIN decoded." if yr else "VIN not found — enter details manually.")
+                self._acct_veh_vin_worker.done.connect(_api_done)
+                self._acct_veh_vin_worker.start()
+
+        f_plate.editingFinished.connect(_on_plate_done)
+        f_vin.editingFinished.connect(_on_vin_done)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted: return
+        plate = f_plate.text().strip().upper()
+        vin   = f_vin.text().strip().upper()
+        if not plate and not vin:
+            QMessageBox.warning(self, "Missing Info", "Enter at least a plate or VIN."); return
+        year  = f_year.text().strip()
+        make  = f_make.text().strip()
+        model = f_model.text().strip()
+        truck = f_truck.text().strip()
+        # Get or create customer linked to this account
+        cust_row = self.db.execute(
+            "SELECT customer_id FROM customers WHERE UPPER(company_name)=UPPER(?) LIMIT 1",
+            (company_key,)).fetchone()
+        if cust_row:
+            cid = cust_row["customer_id"]
+        else:
+            acct = self.db.execute("SELECT * FROM accounts WHERE company_name=? LIMIT 1",
+                                   (company_key,)).fetchone()
+            first = (acct["first_name"] or "") if acct else ""
+            last  = (acct["last_name"]  or "") if acct else ""
+            cid   = get_or_create_customer_id(self.db, first, last, company_key)
+        vid = upsert_vehicle(self.db, cid, vin, plate, make, model, year, truck_number=truck)
+        enqueue(self.db, "vehicle", "upsert", {
+            "vehicle_id": vid, "customer_id": cid,
+            "vin": vin, "plate": plate, "make": make,
+            "model": model, "year": year, "truck_number": truck, "odometer": ""})
+        self._populate_acct_vehicles(company_key)
+        QMessageBox.information(self, "Vehicle Added",
+            f"Vehicle {'plate ' + plate if plate else 'VIN ' + vin} added to account.")
 
     def _acct_veh_row_clicked(self, row, col):
         if not hasattr(self, '_acct_veh_data') or row >= len(self._acct_veh_data): return
@@ -4433,6 +4655,31 @@ class App(QMainWindow):
         rcl_b = btn("Recalculate Balance","secondary"); rcl_b.clicked.connect(self._acct_recalculate_balance); bal_h.addWidget(rcl_b)
         bal_h.addStretch(); body_lay.addLayout(bal_h)
 
+        # Vehicles section
+        veh_grp = QGroupBox("Vehicles")
+        veh_lay = QVBoxLayout(veh_grp)
+        veh_hdr = QHBoxLayout()
+        veh_hdr.addStretch()
+        _av_btn = btn("+ Add Vehicle", "secondary")
+        _av_btn.clicked.connect(self._acct_page_add_vehicle)
+        veh_hdr.addWidget(_av_btn)
+        veh_lay.addLayout(veh_hdr)
+        self._acct_page_veh_no_lbl = QLabel("No vehicles on file for this account")
+        self._acct_page_veh_no_lbl.setStyleSheet(f"color:{CLR_TSUB};font-size:9pt;padding:4px;")
+        veh_lay.addWidget(self._acct_page_veh_no_lbl)
+        self._acct_page_veh_tbl = QTableWidget(0, 5)
+        self._acct_page_veh_tbl.setHorizontalHeaderLabels(["Plate","VIN","Truck #","Year/Make/Model","Next Due"])
+        self._acct_page_veh_tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._acct_page_veh_tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._acct_page_veh_tbl.setAlternatingRowColors(True)
+        self._acct_page_veh_tbl.verticalHeader().setVisible(False)
+        _vh = self._acct_page_veh_tbl.horizontalHeader()
+        _vh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self._acct_page_veh_tbl.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._acct_page_veh_tbl.hide()
+        veh_lay.addWidget(self._acct_page_veh_tbl)
+        body_lay.addWidget(veh_grp)
+
         # Customer History table (invoices + payments combined)
         hist_grp = QGroupBox("Customer History")
         hist_lay = QVBoxLayout(hist_grp)
@@ -4449,8 +4696,9 @@ class App(QMainWindow):
         self._acct_hist_table.customContextMenuRequested.connect(self._acct_hist_context_menu)
         self._acct_hist_table.doubleClicked.connect(self._acct_hist_double_click)
         self._register_table("acct_hist", self._acct_hist_table)
-        hist_lay.addWidget(self._acct_hist_table); body_lay.addWidget(hist_grp)
-        body_lay.addStretch()
+        self._acct_hist_table.setMinimumHeight(200)
+        hist_lay.addWidget(self._acct_hist_table)
+        body_lay.addWidget(hist_grp, 1)  # stretch=1 so history fills remaining space
 
     @staticmethod
     def _acct_disp_name(row):
@@ -4505,6 +4753,7 @@ class App(QMainWindow):
             self._av_disc.setText(_disc_labels.get(disc_type.upper(), f"{disc_pct:.0f}% off each line"))
         else:
             self._av_disc.setText("None")
+        self._refresh_acct_page_vehicles(company_name)
         self._refresh_acct_history(company_name)
 
     def _acct_recalculate_balance(self):
@@ -4523,9 +4772,10 @@ class App(QMainWindow):
         # Re-insert from actual CHARGE invoices in the database
         inv_rows = self.db.execute(
             "SELECT invoice_id, invoice_date, amount_cents FROM invoices "
-            "WHERE (UPPER(company_name)=UPPER(?) OR UPPER(account_id)=UPPER(?)) "
+            "WHERE (UPPER(company_name)=UPPER(?) OR UPPER(account_id)=UPPER(?) "
+            "   OR customer_id IN (SELECT customer_id FROM customers WHERE UPPER(company_name)=UPPER(?))) "
             "AND payment_method='CHARGE' AND is_estimate=0",
-            (company_name, company_name)).fetchall()
+            (company_name, company_name, company_name)).fetchall()
         for inv in inv_rows:
             self.db.execute(
                 "INSERT OR IGNORE INTO account_history(company_name,entry_date,type,amount,invoice_id) "
@@ -4558,12 +4808,18 @@ class App(QMainWindow):
                 uid = uid.strip()
                 if uid: paid_ids.add(uid)
 
-        # Invoices for this account
+        # Invoices for this account — match by company_name, account_id, or customer_id
         inv_rows = self.db.execute("""
             SELECT invoice_id, invoice_number, invoice_date, amount_cents FROM invoices
-            WHERE (UPPER(company_name)=UPPER(?) OR UPPER(account_id)=UPPER(?)) AND is_estimate=0
+            WHERE (UPPER(company_name)=UPPER(?)
+                OR UPPER(account_id)=UPPER(?)
+                OR customer_id IN (
+                    SELECT customer_id FROM customers
+                    WHERE UPPER(company_name)=UPPER(?)
+                ))
+            AND is_estimate=0
             ORDER BY invoice_date DESC
-        """, (company_name, company_name)).fetchall()
+        """, (company_name, company_name, company_name)).fetchall()
 
         # Payments from account_history (include id/payment_id/invoice_id for delete)
         pay_rows = self.db.execute("""
@@ -4617,6 +4873,179 @@ class App(QMainWindow):
                 if ci == 0 and meta is not None:
                     item.setData(Qt.ItemDataRole.UserRole, meta)
                 self._acct_hist_table.setItem(ri, ci, item)
+
+    def _refresh_acct_page_vehicles(self, company_name):
+        """Populate the Vehicles table on the accounts management page."""
+        from datetime import date as _date
+        today = _date.today().isoformat()
+        in30  = (_date.today() + timedelta(days=30)).isoformat()
+        acct_row = self.db.execute("SELECT * FROM accounts WHERE UPPER(company_name)=UPPER(?) LIMIT 1",
+                                   (company_name,)).fetchone()
+        is_indv = bool(acct_row["is_individual"] if acct_row and "is_individual" in acct_row.keys() else 0)
+        if is_indv and acct_row:
+            first = (acct_row["first_name"] or "").strip().upper()
+            last  = (acct_row["last_name"]  or "").strip().upper()
+            rows = self.db.execute(
+                "SELECT v.* FROM vehicles v JOIN customers c ON c.customer_id=v.customer_id "
+                "WHERE UPPER(c.first_name)=? AND UPPER(c.last_name)=? AND v.deleted=0 "
+                "ORDER BY v.next_test_due ASC, v.plate ASC",
+                (first, last)).fetchall()
+        else:
+            rows = self.db.execute(
+                "SELECT v.* FROM vehicles v JOIN customers c ON c.customer_id=v.customer_id "
+                "WHERE UPPER(c.company_name)=UPPER(?) AND v.deleted=0 "
+                "ORDER BY v.next_test_due ASC, v.plate ASC",
+                (company_name,)).fetchall()
+        tbl = self._acct_page_veh_tbl
+        tbl.setRowCount(0)
+        if not rows:
+            tbl.hide()
+            self._acct_page_veh_no_lbl.setText("No vehicles on file for this account")
+            self._acct_page_veh_no_lbl.show()
+            return
+        self._acct_page_veh_no_lbl.hide(); tbl.show()
+        for r, v in enumerate(rows):
+            tbl.insertRow(r)
+            plate = v["plate"] or ""; vin = v["vin"] or ""
+            truck = (v["truck_number"] if "truck_number" in v.keys() else "") or ""
+            ymm   = " ".join(filter(None,[v["year"] or "",v["make"] or "",v["model"] or ""]))
+            due   = v["next_test_due"] or ""
+            for col, val in enumerate([plate, vin, truck or "—", ymm, due or "—"]):
+                tbl.setItem(r, col, QTableWidgetItem(val))
+            if due:
+                clr = QColor("#FFE8E8") if due < today else (QColor("#FFF3CD") if due <= in30 else None)
+            else:
+                clr = None
+            if clr:
+                for col in range(5):
+                    item = tbl.item(r, col)
+                    if item: item.setBackground(clr)
+        tbl.resizeColumnsToContents()
+        tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        row_h = tbl.verticalHeader().defaultSectionSize()
+        tbl.setFixedHeight(tbl.horizontalHeader().height() + row_h * tbl.rowCount() + 4)
+
+    def _acct_page_add_vehicle(self):
+        """Add Vehicle dialog for the accounts management page."""
+        if not hasattr(self, '_acct_names') or not self._acct_names: return
+        company_key = self._acct_names[self._acct_index]
+
+        dlg = QDialog(self); dlg.setWindowTitle("Add Vehicle to Account")
+        dlg.setMinimumWidth(380)
+        fld_style = "QLineEdit{border:1px solid #B8CCE8;border-radius:6px;padding:6px 10px;font-size:10pt;}"
+        form = QFormLayout(dlg); form.setSpacing(10); form.setContentsMargins(16,16,16,16)
+        f_plate = QLineEdit(); f_plate.setPlaceholderText("License plate")
+        f_vin   = QLineEdit(); f_vin.setPlaceholderText("17-char VIN")
+        f_year  = QLineEdit(); f_year.setPlaceholderText("Year")
+        f_make  = QLineEdit(); f_make.setPlaceholderText("Make")
+        f_model = QLineEdit(); f_model.setPlaceholderText("Model")
+        f_truck = QLineEdit(); f_truck.setPlaceholderText("Truck # (optional)")
+        status_lbl = QLabel(""); status_lbl.setStyleSheet("color:#0369A1;font-size:9pt;")
+        for w in (f_plate, f_vin, f_year, f_make, f_model, f_truck):
+            w.setStyleSheet(fld_style)
+        # Force all fields uppercase
+        for fld in (f_plate, f_vin, f_year, f_make, f_model, f_truck):
+            fld.textChanged.connect(lambda t, f=fld: (f.blockSignals(True), f.setText(t.upper()), f.blockSignals(False)))
+        # NONE checkbox for plate
+        plate_row = QHBoxLayout()
+        plate_row.addWidget(f_plate, 1)
+        no_plate_cb = QCheckBox("NONE")
+        no_plate_cb.setStyleSheet("font-size:9pt;")
+        def _toggle_none_plate(checked):
+            if checked:
+                f_plate.setText("NONE"); f_plate.setEnabled(False)
+            else:
+                f_plate.setText(""); f_plate.setEnabled(True)
+        no_plate_cb.toggled.connect(_toggle_none_plate)
+        plate_row.addWidget(no_plate_cb)
+        plate_w = QWidget(); plate_w.setLayout(plate_row)
+        form.addRow("Plate", plate_w); form.addRow("VIN", f_vin)
+        form.addRow("Year", f_year); form.addRow("Make", f_make)
+        form.addRow("Model", f_model); form.addRow("Truck #", f_truck)
+        form.addRow("", status_lbl)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+
+        def _fill_from_vrow(vrow):
+            if vrow:
+                if not f_vin.text()   and vrow["vin"]:   f_vin.setText(vrow["vin"])
+                if not f_year.text()  and vrow["year"]:  f_year.setText(vrow["year"])
+                if not f_make.text()  and vrow["make"]:  f_make.setText(vrow["make"])
+                if not f_model.text() and vrow["model"]: f_model.setText(vrow["model"])
+                tn = vrow["truck_number"] if "truck_number" in vrow.keys() else ""
+                if not f_truck.text() and tn: f_truck.setText(tn)
+
+        def _on_plate_done():
+            plate = f_plate.text().strip().upper()
+            if not plate or plate == "NONE": return
+            vin = f_vin.text().strip().upper()
+            vrow = self.db.execute(
+                "SELECT * FROM vehicles WHERE UPPER(plate)=?" + (" AND vin=?" if vin else "") +
+                " ORDER BY updated_at DESC LIMIT 1",
+                (plate, vin) if vin else (plate,)).fetchone()
+            if not vrow:
+                vrow = self.db.execute(
+                    "SELECT v.* FROM vehicles v JOIN invoices i ON i.vin=v.vin "
+                    "WHERE UPPER(i.plate)=? ORDER BY i.invoice_date DESC LIMIT 1",
+                    (plate,)).fetchone()
+            if vrow:
+                _fill_from_vrow(vrow); status_lbl.setText("Vehicle found in records.")
+            else:
+                status_lbl.setText("No existing record — fill in details below.")
+
+        def _on_vin_done():
+            vin = f_vin.text().strip().upper()
+            if len(vin) != 17: return
+            vrow = self.db.execute(
+                "SELECT * FROM vehicles WHERE vin=? ORDER BY updated_at DESC LIMIT 1", (vin,)).fetchone()
+            if vrow:
+                _fill_from_vrow(vrow); status_lbl.setText("Vehicle found in records."); return
+            vrow = self.db.execute(
+                "SELECT v.* FROM vehicles v JOIN invoices i ON i.customer_id=v.customer_id "
+                "WHERE UPPER(i.vin)=? ORDER BY i.invoice_date DESC LIMIT 1", (vin,)).fetchone()
+            if vrow:
+                _fill_from_vrow(vrow); status_lbl.setText("Vehicle found via invoice history."); return
+            if requests:
+                status_lbl.setText("Looking up VIN online...")
+                self._ap_veh_vin_worker = VinWorker(vin)
+                def _api_done(yr, mk, md):
+                    if yr and not f_year.text():  f_year.setText(yr)
+                    if mk and not f_make.text():  f_make.setText(mk)
+                    if md and not f_model.text(): f_model.setText(md)
+                    status_lbl.setText("VIN decoded." if yr else "VIN not found — enter details manually.")
+                self._ap_veh_vin_worker.done.connect(_api_done)
+                self._ap_veh_vin_worker.start()
+
+        f_plate.editingFinished.connect(_on_plate_done)
+        f_vin.editingFinished.connect(_on_vin_done)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted: return
+        plate = f_plate.text().strip().upper()
+        vin   = f_vin.text().strip().upper()
+        if not plate and not vin:
+            QMessageBox.warning(self, "Missing Info", "Enter at least a plate or VIN."); return
+        year  = f_year.text().strip(); make = f_make.text().strip()
+        model = f_model.text().strip(); truck = f_truck.text().strip()
+        cust_row = self.db.execute(
+            "SELECT customer_id FROM customers WHERE UPPER(company_name)=UPPER(?) LIMIT 1",
+            (company_key,)).fetchone()
+        if cust_row:
+            cid = cust_row["customer_id"]
+        else:
+            acct = self.db.execute("SELECT * FROM accounts WHERE company_name=? LIMIT 1",
+                                   (company_key,)).fetchone()
+            first = (acct["first_name"] or "") if acct else ""
+            last  = (acct["last_name"]  or "") if acct else ""
+            cid   = get_or_create_customer_id(self.db, first, last, company_key)
+        vid = upsert_vehicle(self.db, cid, vin, plate, make, model, year, truck_number=truck)
+        enqueue(self.db, "vehicle", "upsert", {
+            "vehicle_id": vid, "customer_id": cid,
+            "vin": vin, "plate": plate, "make": make,
+            "model": model, "year": year, "truck_number": truck, "odometer": ""})
+        self._refresh_acct_page_vehicles(company_key)
+        QMessageBox.information(self, "Vehicle Added",
+            f"Vehicle {'plate ' + plate if plate else 'VIN ' + vin} added to account.")
 
     def _acct_hist_context_menu(self, pos):
         """Right-click menu on Customer History table - mark/unmark invoices paid, delete payments."""
@@ -5404,8 +5833,17 @@ class App(QMainWindow):
         for t in [self._rpt_tab_w, self._rpt_tab_m, self._rpt_tab_y]:
             period_row.addWidget(t)
 
-        # Period picker button — opens dropdown matching mockup
+        # Period picker — prev/next arrows + label button that opens the full picker
         period_row.addSpacing(16)
+        _nav_style = (
+            f"QPushButton{{background:{CLR_CARD};border:1px solid {CLR_BORDER};"
+            f"border-radius:6px;color:{CLR_TEXT};padding:4px 10px;font-size:11pt;font-weight:700;}}"
+            f"QPushButton:hover{{background:{CLR_BFAINT};}}")
+        _prev_btn = QPushButton("◀"); _prev_btn.setStyleSheet(_nav_style); _prev_btn.setFixedWidth(32)
+        _next_btn = QPushButton("▶"); _next_btn.setStyleSheet(_nav_style); _next_btn.setFixedWidth(32)
+        _prev_btn.clicked.connect(self._rpt_prev_period)
+        _next_btn.clicked.connect(self._rpt_next_period)
+        period_row.addWidget(_prev_btn)
         self._rpt_period_btn = QPushButton("This Week  ▾")
         self._rpt_period_btn.setStyleSheet(
             f"QPushButton{{background:{CLR_CARD};border:1px solid {CLR_BORDER};"
@@ -5413,7 +5851,15 @@ class App(QMainWindow):
             f"QPushButton:hover{{background:{CLR_BFAINT};}}")
         self._rpt_period_btn.clicked.connect(self._rpt_show_period_popup)
         period_row.addWidget(self._rpt_period_btn)
+        period_row.addWidget(_next_btn)
         period_row.addStretch()
+        _print_rpt_btn = QPushButton("🖨  Print Report")
+        _print_rpt_btn.setStyleSheet(
+            f"QPushButton{{background:{CLR_CARD};border:1px solid {CLR_BORDER};"
+            f"border-radius:6px;color:{CLR_TEXT};padding:4px 14px;font-weight:600;font-size:10pt;}}"
+            f"QPushButton:hover{{background:{CLR_BFAINT};}}")
+        _print_rpt_btn.clicked.connect(self._rpt_print)
+        period_row.addWidget(_print_rpt_btn)
         # Keep hidden QDateEdits for _run_report compatibility
         self._rpt_begin = QDateEdit(QDate(datetime.today().year, datetime.today().month, 1))
         self._rpt_begin.setCalendarPopup(True); self._rpt_begin.setVisible(False)
@@ -5517,14 +5963,12 @@ class App(QMainWindow):
             styleSheet=f"color:{CLR_TEXT};font-weight:700;font-size:11pt;"))
         qr_grid = QGridLayout(); qr_grid.setSpacing(6)
         for i,(lbl_txt,cb) in enumerate([
-            ("Month-To-Date",         lambda: self._run_report("mtd")),
             ("Daily",                 lambda: self._run_report("daily")),
-            ("Weekly",                lambda: self._run_report("weekly")),
             ("By Payment Type",       lambda: self._run_report("by_pay")),
             ("By Service",            lambda: self._run_report("by_svc")),
             ("Open Estimates",        lambda: self._run_report("estimates")),
             ("Account Balances",      lambda: self._run_report("balances")),
-            ("Vehicles Due (90 Days)",lambda: self._run_report("vehicles_due")),
+            ("Vehicles Due",          lambda: self._run_report("vehicles_due")),
         ]):
             b = btn(lbl_txt,"secondary"); b.setMinimumHeight(36); b.clicked.connect(cb)
             qr_grid.addWidget(b, i//4, i%4)
@@ -5548,6 +5992,243 @@ class App(QMainWindow):
         titles = {"w":"Inspections by day","m":"Inspections by date","y":"Inspections by month"}
         self._rpt_chart_title.setText(titles[key])
         self._rpt_refresh_dashboard()
+
+    def _rpt_prev_period(self):
+        anchor = getattr(self, '_rpt_anchor', datetime.today())
+        p = self._rpt_period
+        if p == "w":   self._rpt_anchor = anchor - timedelta(weeks=1)
+        elif p == "m": self._rpt_anchor = (anchor.replace(day=1) - timedelta(days=1)).replace(day=1)
+        else:          self._rpt_anchor = anchor.replace(year=anchor.year - 1)
+        self._rpt_refresh_dashboard()
+
+    def _rpt_next_period(self):
+        anchor = getattr(self, '_rpt_anchor', datetime.today())
+        today  = datetime.today()
+        p = self._rpt_period
+        if p == "w":
+            nxt = anchor + timedelta(weeks=1)
+            if nxt <= today: self._rpt_anchor = nxt
+        elif p == "m":
+            nxt = (anchor.replace(day=28) + timedelta(days=4)).replace(day=1)
+            if nxt <= today: self._rpt_anchor = nxt
+        else:
+            if anchor.year < today.year: self._rpt_anchor = anchor.replace(year=anchor.year + 1)
+        self._rpt_refresh_dashboard()
+
+    def _rpt_print(self):
+        """Print the current report using the system print dialog."""
+        from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+        from PyQt6.QtGui import QTextDocument
+        period_lbl = self._rpt_period_btn.text().replace("  ▾", "").strip()
+        insp  = getattr(self, '_rpt_s_insp',  None)
+        pass_ = getattr(self, '_rpt_s_pass',  None)
+        rev   = getattr(self, '_rpt_s_rev',   None)
+        avg   = getattr(self, '_rpt_s_avg',   None)
+        insp_val  = insp.text()  if insp  else "—"
+        pass_val  = pass_.text() if pass_ else "—"
+        rev_val   = rev.text()   if rev   else "—"
+        avg_val   = avg.text()   if avg   else "—"
+
+        # Build payment type breakdown rows from live DB data for the current period
+        pay_rows = ""
+        try:
+            anchor = getattr(self, '_rpt_anchor', datetime.today())
+            _period = self._rpt_period
+            if _period == "w":
+                _start = anchor - timedelta(days=(anchor.weekday() + 1) % 7)
+                _end   = _start + timedelta(days=6)
+            elif _period == "m":
+                import calendar as _cal
+                _start = anchor.replace(day=1)
+                _end   = anchor.replace(day=_cal.monthrange(anchor.year, anchor.month)[1])
+            else:
+                _start = anchor.replace(month=1, day=1)
+                _end   = anchor.replace(month=12, day=31)
+            _no_void = "AND UPPER(COALESCE(status,'')) NOT IN ('VOID','DELETED','CANCELLED','VOIDED')"
+            pay_data = self.db.execute(
+                f"SELECT UPPER(COALESCE(NULLIF(TRIM(payment_method),''),'UNKNOWN')) AS pm, "
+                f"COUNT(*) AS cnt, SUM(amount_cents) AS total "
+                f"FROM invoices WHERE is_estimate=0 AND invoice_date>=? AND invoice_date<=? {_no_void} "
+                f"GROUP BY pm ORDER BY total DESC",
+                (_start.strftime("%Y-%m-%d"), _end.strftime("%Y-%m-%d"))
+            ).fetchall()
+            grand_total = sum(r["total"] or 0 for r in pay_data)
+            for r in pay_data:
+                pct = f"{int((r['total'] or 0)/grand_total*100)}%" if grand_total else "0%"
+                pay_rows += (
+                    f"<tr>"
+                    f"<td width='42%' style='padding:4px 10px;border-bottom:1px solid #ccc;'>{r['pm']}</td>"
+                    f"<td width='13%' style='padding:4px 10px;border-bottom:1px solid #ccc;text-align:right;'>{r['cnt']}</td>"
+                    f"<td width='15%' style='padding:4px 10px;border-bottom:1px solid #ccc;text-align:right;'>{pct}</td>"
+                    f"<td width='30%' style='padding:4px 10px;border-bottom:1px solid #ccc;text-align:right;'>${(r['total'] or 0)/100:,.2f}</td>"
+                    f"</tr>"
+                )
+            pay_rows += (
+                f"<tr style='font-weight:700;background:#f0f4ff;'>"
+                f"<td width='42%' style='padding:4px 10px;'>TOTAL</td>"
+                f"<td width='13%' style='padding:4px 10px;text-align:right;'>{sum(r['cnt'] for r in pay_data)}</td>"
+                f"<td width='15%' style='padding:4px 10px;text-align:right;'></td>"
+                f"<td width='30%' style='padding:4px 10px;text-align:right;'>${grand_total/100:,.2f}</td>"
+                f"</tr>"
+            )
+        except Exception: pass
+
+        # Build truck type table rows — explicit widths for QTextDocument compatibility
+        TT_W = ["60%", "20%", "20%"]
+        tt_rows = ""
+        if hasattr(self, '_rpt_tt_tbl'):
+            t = self._rpt_tt_tbl
+            for r in range(t.rowCount()):
+                cells = ""
+                for c in range(t.columnCount()):
+                    align = "right" if c > 0 else "left"
+                    val = t.item(r, c).text() if t.item(r, c) else ""
+                    cells += (f"<td width='{TT_W[c]}' style='padding:4px 10px;"
+                              f"border-bottom:1px solid #ccc;text-align:{align};'>{val}</td>")
+                tt_rows += f"<tr>{cells}</tr>"
+
+        biz_name = ""
+        try:
+            biz_name = get_business_settings(self.db).get("name","").strip() or "Blue Sky Smog"
+        except Exception:
+            biz_name = "Blue Sky Smog"
+
+        # Build period breakdown section
+        breakdown_html = ""
+        try:
+            _no_void3 = "AND UPPER(COALESCE(status,'')) NOT IN ('VOID','DELETED','CANCELLED','VOIDED')"
+            _day_q = self.db.execute(
+                f"SELECT invoice_date, COUNT(*) as cnt, SUM(amount_cents) as total "
+                f"FROM invoices WHERE is_estimate=0 AND invoice_date>=? AND invoice_date<=? {_no_void3} "
+                f"GROUP BY invoice_date ORDER BY invoice_date",
+                (_start.strftime("%Y-%m-%d"), _end.strftime("%Y-%m-%d"))
+            ).fetchall()
+            day_data = {r["invoice_date"]: (r["cnt"], r["total"] or 0) for r in _day_q}
+
+            def _bk_hdr(title):
+                return (f"<tr style='background:#1e40af;color:white;'>"
+                        f"<th width='55%' style='padding:5px 10px;text-align:left;'>{title}</th>"
+                        f"<th width='20%' style='padding:5px 10px;text-align:right;'>Invoices</th>"
+                        f"<th width='25%' style='padding:5px 10px;text-align:right;'>Total</th></tr>")
+            def _bk_row(label, cnt, rev, indent=0, bold=False, bg=""):
+                s = f"background:{bg};" if bg else ""
+                fw = "font-weight:700;" if bold else ""
+                pl = f"padding-left:{10+indent}px;"
+                cnt_s = str(cnt) if cnt else "—"
+                rev_s = f"${rev/100:,.2f}" if cnt else "—"
+                return (f"<tr style='{s}{fw}'>"
+                        f"<td width='55%' style='padding:3px 10px;{pl}border-bottom:1px solid #eee;'>{label}</td>"
+                        f"<td width='20%' style='padding:3px 10px;border-bottom:1px solid #eee;text-align:right;'>{cnt_s}</td>"
+                        f"<td width='25%' style='padding:3px 10px;border-bottom:1px solid #eee;text-align:right;'>{rev_s}</td></tr>")
+            def _bk_total(label, cnt, rev, bg="#dbeafe"):
+                return (f"<tr style='font-weight:700;background:{bg};'>"
+                        f"<td width='55%' style='padding:4px 10px;'>{label}</td>"
+                        f"<td width='20%' style='padding:4px 10px;text-align:right;'>{cnt}</td>"
+                        f"<td width='25%' style='padding:4px 10px;text-align:right;'>${rev/100:,.2f}</td></tr>")
+
+            bk_rows = ""; grand_cnt = 0; grand_rev = 0
+
+            if _period == "w":
+                bk_rows += _bk_hdr("Day")
+                for i in range(7):
+                    d = _start + timedelta(days=i)
+                    cnt, rev = day_data.get(d.strftime("%Y-%m-%d"), (0, 0))
+                    if not cnt: continue
+                    grand_cnt += cnt; grand_rev += rev
+                    bk_rows += _bk_row(d.strftime("%A, %b %d"), cnt, rev)
+                bk_rows += _bk_total("WEEK TOTAL", grand_cnt, grand_rev)
+                breakdown_html = (f"<h3 style='margin:20px 0 6px;font-size:11pt;'>Daily Breakdown</h3>"
+                                  f"<table width='100%' style='border-collapse:collapse;'>{bk_rows}</table>")
+
+            elif _period == "m":
+                bk_rows += _bk_hdr("Week / Day")
+                cur = _start; wk = 1
+                while cur <= _end:
+                    days_to_sat = (5 - cur.weekday()) % 7
+                    wk_end = min(cur + timedelta(days=days_to_sat), _end)
+                    wk_cnt = 0; wk_rev = 0; wk_day_rows = ""
+                    d = cur
+                    while d <= wk_end:
+                        cnt, rev = day_data.get(d.strftime("%Y-%m-%d"), (0, 0))
+                        if cnt:
+                            wk_cnt += cnt; wk_rev += rev
+                            wk_day_rows += _bk_row(d.strftime("%a, %b %d"), cnt, rev, indent=12)
+                        d += timedelta(days=1)
+                    if wk_cnt:
+                        grand_cnt += wk_cnt; grand_rev += wk_rev
+                        bk_rows += (f"<tr style='background:#e8edf5;'>"
+                                    f"<td colspan='3' style='padding:4px 10px;font-weight:600;'>"
+                                    f"Week {wk} &nbsp; {cur.strftime('%b %d')} – {wk_end.strftime('%b %d')}</td></tr>")
+                        bk_rows += wk_day_rows
+                        bk_rows += _bk_total(f"Week {wk} Total", wk_cnt, wk_rev, bg="#f0f4ff")
+                    cur = wk_end + timedelta(days=1); wk += 1
+                bk_rows += _bk_total("MONTH TOTAL", grand_cnt, grand_rev)
+                breakdown_html = (f"<h3 style='margin:20px 0 6px;font-size:11pt;'>Weekly / Daily Breakdown</h3>"
+                                  f"<table width='100%' style='border-collapse:collapse;'>{bk_rows}</table>")
+
+            else:  # year
+                import calendar as _cal4
+                bk_rows += _bk_hdr("Month")
+                for m in range(1, 13):
+                    m_cnt = sum(cnt for ds,(cnt,_) in day_data.items() if ds[5:7]==f"{m:02d}")
+                    m_rev = sum(rev for ds,(_,rev) in day_data.items() if ds[5:7]==f"{m:02d}")
+                    if not m_cnt: continue
+                    grand_cnt += m_cnt; grand_rev += m_rev
+                    mn = datetime(_start.year, m, 1).strftime("%B")
+                    bk_rows += _bk_row(mn, m_cnt, m_rev)
+                bk_rows += _bk_total("YEAR TOTAL", grand_cnt, grand_rev)
+                breakdown_html = (f"<h3 style='margin:20px 0 6px;font-size:11pt;'>Monthly Breakdown</h3>"
+                                  f"<table width='100%' style='border-collapse:collapse;'>{bk_rows}</table>")
+        except Exception:
+            breakdown_html = ""
+
+        html = f"""
+        <html><body style='font-family:Arial,sans-serif;color:#111;'>
+        <h2 style='margin:0 0 4px;'>{biz_name or 'Blue Sky'} — Report</h2>
+        <p style='color:#666;margin:0 0 16px;font-size:11pt;'>{period_lbl}</p>
+        <table width='100%' style='border-collapse:collapse;margin-bottom:20px;'>
+          <tr>
+            <td style='padding:10px 16px;background:#f0f4ff;border-radius:6px;text-align:center;'>
+              <div style='font-size:9pt;color:#666;font-weight:700;letter-spacing:1px;'>INSPECTIONS</div>
+              <div style='font-size:22pt;font-weight:700;'>{insp_val}</div></td>
+            <td width='8'></td>
+            <td style='padding:10px 16px;background:#f0f4ff;border-radius:6px;text-align:center;'>
+              <div style='font-size:9pt;color:#666;font-weight:700;letter-spacing:1px;'>PASS RATE</div>
+              <div style='font-size:22pt;font-weight:700;'>{pass_val}</div></td>
+            <td width='8'></td>
+            <td style='padding:10px 16px;background:#f0f4ff;border-radius:6px;text-align:center;'>
+              <div style='font-size:9pt;color:#666;font-weight:700;letter-spacing:1px;'>REVENUE</div>
+              <div style='font-size:22pt;font-weight:700;'>{rev_val}</div></td>
+            <td width='8'></td>
+            <td style='padding:10px 16px;background:#f0f4ff;border-radius:6px;text-align:center;'>
+              <div style='font-size:9pt;color:#666;font-weight:700;letter-spacing:1px;'>AVG / DAY</div>
+              <div style='font-size:22pt;font-weight:700;'>{avg_val}</div></td>
+          </tr>
+        </table>
+        <table width='100%' style='border-collapse:collapse;margin-bottom:20px;'>
+          <tr style='background:#1e40af;color:white;'>
+            <th width='42%' style='padding:6px 10px;text-align:left;'>Payment Type</th>
+            <th width='13%' style='padding:6px 10px;text-align:right;'>Count</th>
+            <th width='15%' style='padding:6px 10px;text-align:right;'>% of Total</th>
+            <th width='30%' style='padding:6px 10px;text-align:right;'>Amount</th>
+          </tr>{pay_rows}
+        </table>
+        <table width='100%' style='border-collapse:collapse;'>
+          <tr style='background:#1e40af;color:white;'>
+            <th width='60%' style='padding:6px 10px;text-align:left;'>Truck / Service Type</th>
+            <th width='20%' style='padding:6px 10px;text-align:right;'>Count</th>
+            <th width='20%' style='padding:6px 10px;text-align:right;'>Pass Rate</th>
+          </tr>{tt_rows}
+        </table>
+        {breakdown_html}
+        </body></html>"""
+
+        doc = QTextDocument()
+        doc.setHtml(html)
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        dlg = QPrintDialog(printer, self)
+        if dlg.exec() == QPrintDialog.DialogCode.Accepted:
+            doc.print(printer)
 
     def _rpt_update_period_label(self, start, end):
         period = self._rpt_period
@@ -5750,7 +6431,9 @@ class App(QMainWindow):
         rows = self.db.execute(
             "SELECT i.invoice_id, i.invoice_date, i.test_result, i.amount_cents, "
             "i.customer_name, i.first_name, i.last_name, i.company_name FROM invoices i "
-            "WHERE i.is_estimate=0 AND i.invoice_date>=? AND i.invoice_date<=? ORDER BY i.invoice_date",
+            "WHERE i.is_estimate=0 AND i.invoice_date>=? AND i.invoice_date<=? "
+            "AND UPPER(COALESCE(i.status,'')) NOT IN ('VOID','DELETED','CANCELLED','VOIDED') "
+            "ORDER BY i.invoice_date",
             (start_s, end_s)
         ).fetchall()
 
@@ -5801,8 +6484,9 @@ class App(QMainWindow):
         total_insp = sum(pass_cnt) + sum(fail_cnt)
         pass_rate  = f"{int(pass_total/total_insp*100)}%" if total_insp else "—"
         rev_str    = f"${total_rev/100:,.2f}"
-        unique_days = len(set(r["invoice_date"] for r in rows)) or 1
-        avg_str    = f"{total_insp/unique_days:.1f}" if total_insp else "—"
+        # Use total days in the period, not just days that had inspections
+        total_days = (end - start).days + 1
+        avg_str    = f"{total_insp/total_days:.1f}" if total_insp else "—"
 
         self._rpt_s_insp.setText(str(total_insp))
         self._rpt_s_pass.setText(pass_rate)
@@ -5823,21 +6507,22 @@ class App(QMainWindow):
         anchor = getattr(self, '_rpt_anchor', datetime.today()); period = self._rpt_period
         _sel = ("SELECT invoice_id, invoice_date, test_result, amount_cents, "
                 "customer_name, first_name, last_name, company_name FROM invoices")
+        _no_void = " AND UPPER(COALESCE(status,'')) NOT IN ('VOID','DELETED','CANCELLED','VOIDED')"
         if period == "w":
             start = anchor - timedelta(days=(anchor.weekday() + 1) % 7)
             d = (start + timedelta(days=bar_idx)).strftime("%Y-%m-%d")
-            rows = self.db.execute(_sel + " WHERE is_estimate=0 AND invoice_date=?", (d,)).fetchall()
+            rows = self.db.execute(_sel + " WHERE is_estimate=0 AND invoice_date=?" + _no_void, (d,)).fetchall()
             lbl = d
         elif period == "m":
             d = anchor.replace(day=bar_idx+1).strftime("%Y-%m-%d")
-            rows = self.db.execute(_sel + " WHERE is_estimate=0 AND invoice_date=?", (d,)).fetchall()
+            rows = self.db.execute(_sel + " WHERE is_estimate=0 AND invoice_date=?" + _no_void, (d,)).fetchall()
             lbl = d
         else:
             m = bar_idx + 1
             start_s = anchor.replace(month=m, day=1).strftime("%Y-%m-%d")
             import calendar; last_day = calendar.monthrange(anchor.year, m)[1]
             end_s = anchor.replace(month=m, day=last_day).strftime("%Y-%m-%d")
-            rows = self.db.execute(_sel + " WHERE is_estimate=0 AND invoice_date>=? AND invoice_date<=?",
+            rows = self.db.execute(_sel + " WHERE is_estimate=0 AND invoice_date>=? AND invoice_date<=?" + _no_void,
                 (start_s, end_s)).fetchall()
             lbl = datetime(anchor.year, m, 1).strftime("%B %Y")
         self._rpt_fill_tables(rows, lbl)
@@ -5881,162 +6566,128 @@ class App(QMainWindow):
                     t2.setItem(i, col, QTableWidgetItem(val))
 
     def _run_report(self, rpt_type):
-        begin_date = self._rpt_begin.date()
-        end_date   = self._rpt_end.date()
-
-        # Override date range based on report type
         today = QDate.currentDate()
-        if rpt_type == "mtd":
-            begin = QDate(today.year(), today.month(), 1).toString("yyyy-MM-dd")
-            end   = today.toString("yyyy-MM-dd")
-        elif rpt_type == "weekly":
-            # Start of current week (Sunday)
-            dow   = today.dayOfWeek() % 7  # Qt: 1=Mon…7=Sun → 0=Sun…6=Sat
-            begin = today.addDays(-dow).toString("yyyy-MM-dd")
-            end   = today.addDays(6 - dow).toString("yyyy-MM-dd")
-        elif rpt_type == "daily":
+        _no_void = " AND UPPER(COALESCE(status,'')) NOT IN ('VOID','DELETED','CANCELLED','VOIDED')"
+
+        # Initial date range defaults
+        if rpt_type == "daily":
             begin = today.toString("yyyy-MM-dd")
             end   = begin
+        elif rpt_type in ("by_pay", "by_svc", "estimates"):
+            begin = QDate(today.year(), today.month(), 1).toString("yyyy-MM-dd")
+            end   = today.toString("yyyy-MM-dd")
         else:
-            begin = begin_date.toString("yyyy-MM-dd")
-            end   = end_date.toString("yyyy-MM-dd")
-
-        all_rows = []
-        if rpt_type != "vehicles_due":
-            try:
-                all_rows = self.db.execute("""
-                    SELECT invoice_number,invoice_date,customer_name,first_name,last_name,
-                           company_name,amount_cents,payment_method,is_estimate,test_result
-                    FROM invoices WHERE invoice_date>=? AND invoice_date<=? AND is_estimate=?
-                    ORDER BY invoice_date
-                """,(begin,end,1 if rpt_type=="estimates" else 0)).fetchall()
-            except Exception as e:
-                QMessageBox.warning(self,"Error",str(e)); return
+            begin = self._rpt_begin.date().toString("yyyy-MM-dd")
+            end   = self._rpt_end.date().toString("yyyy-MM-dd")
 
         if rpt_type == "balances":
             title_str = "Outstanding Account Balances"
         elif rpt_type == "vehicles_due":
-            title_str = "Vehicles Due for Testing — Next 90 Days"
+            title_str = "Vehicles Due for Testing"
         else:
             title_str = f"Report - {rpt_type}  ({begin} to {end})"
-        dlg = QDialog(self); dlg.setWindowTitle(title_str); dlg.resize(860,620)
+
+        dlg = QDialog(self); dlg.setWindowTitle(title_str); dlg.resize(860,640)
         lay = QVBoxLayout(dlg)
 
-        tbl = QTableWidget(0,0)
+        # ── Inline date picker bar (date-range reports only) ──────────────
+        _begin_de = _end_de = None
+        if rpt_type in ("daily", "by_pay", "by_svc", "estimates"):
+            _dbar = QHBoxLayout(); _dbar.setSpacing(8)
+            if rpt_type == "daily":
+                _dbar.addWidget(QLabel("Date:"))
+                _begin_de = QDateEdit(QDate.fromString(begin, "yyyy-MM-dd"))
+                _begin_de.setCalendarPopup(True); _begin_de.setDisplayFormat("MM/dd/yyyy")
+                _dbar.addWidget(_begin_de)
+            else:
+                _dbar.addWidget(QLabel("From:"))
+                _begin_de = QDateEdit(QDate.fromString(begin, "yyyy-MM-dd"))
+                _begin_de.setCalendarPopup(True); _begin_de.setDisplayFormat("MM/dd/yyyy")
+                _dbar.addWidget(_begin_de)
+                _dbar.addWidget(QLabel("To:"))
+                _end_de = QDateEdit(QDate.fromString(end, "yyyy-MM-dd"))
+                _end_de.setCalendarPopup(True); _end_de.setDisplayFormat("MM/dd/yyyy")
+                _dbar.addWidget(_end_de)
+            _go_btn = QPushButton("Go"); _go_btn.setFixedWidth(64); _go_btn.setObjectName("primary")
+            _dbar.addWidget(_go_btn); _dbar.addStretch()
+            lay.addLayout(_dbar)
+
+        tbl = QTableWidget(0, 0)
         tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         tbl.setAlternatingRowColors(True)
-        total = 0.0
 
+        # Column headers set once
         if rpt_type == "by_pay":
-            # Group by payment type: Date Range | Payment Type | # Transactions | Total
             tbl.setColumnCount(4)
             tbl.setHorizontalHeaderLabels(["Date Range","Payment Type","# Transactions","Total"])
             tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-            from collections import defaultdict
-            groups = defaultdict(lambda: {"count":0,"total":0.0})
-            for row in all_rows:
-                pt = (row["payment_method"] or "UNKNOWN").upper()
-                groups[pt]["count"] += 1
-                groups[pt]["total"] += row["amount_cents"]/100
-                total += row["amount_cents"]/100
-            for pt, g in sorted(groups.items()):
-                r = tbl.rowCount(); tbl.insertRow(r)
-                for col,val in enumerate([f"{begin} - {end}", pt, str(g["count"]), f"${g['total']:,.2f}"]):
-                    tbl.setItem(r,col,QTableWidgetItem(val))
-
         elif rpt_type == "by_svc":
-            # Group by service: Service Type | # Transactions | Total
             tbl.setColumnCount(3)
             tbl.setHorizontalHeaderLabels(["Service Type","# Transactions","Total"])
             tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-            try:
-                from collections import defaultdict
-                svc_groups = defaultdict(lambda: {"count":0,"total":0.0})
-                # Use il.price directly - mobile app will send correct per-line prices going forward
-                lines = self.db.execute(
-                    "SELECT il.service, il.price FROM invoice_lines il "
-                    "JOIN invoices i ON il.invoice_id=i.invoice_id "
-                    "WHERE i.invoice_date>=? AND i.invoice_date<=? AND i.is_estimate=0",
-                    (begin, end)).fetchall()
-                for ln in lines:
-                    svc = (ln["service"] or "UNKNOWN").upper()
-                    svc_groups[svc]["count"] += 1
-                    svc_groups[svc]["total"] += float(ln["price"] or 0)
-                if not svc_groups:
-                    for row in all_rows:
-                        svc_groups["SMOG CHECK"]["count"] += 1
-                        svc_groups["SMOG CHECK"]["total"] += row["amount_cents"]/100
-                for svc, g in sorted(svc_groups.items()):
-                    r = tbl.rowCount(); tbl.insertRow(r)
-                    total += g["total"]
-                    for col,val in enumerate([svc, str(g["count"]), f"${g['total']:,.2f}"]):
-                        tbl.setItem(r,col,QTableWidgetItem(val))
-            except Exception as ex:
-                for row in all_rows:
-                    r = tbl.rowCount(); tbl.insertRow(r)
-                    for col,val in enumerate(["SMOG CHECK","1",f"${row['amount_cents']/100:,.2f}"]):
-                        tbl.setItem(r,col,QTableWidgetItem(val))
-                    total += row["amount_cents"]/100
-
         elif rpt_type == "balances":
-            rows = self.db.execute(
-                "SELECT company_name, contact_name, phone, email, total_owed "
-                "FROM accounts WHERE total_owed > 0 ORDER BY total_owed DESC"
-            ).fetchall()
             tbl.setColumnCount(5)
-            tbl.setHorizontalHeaderLabels(["Company", "Contact", "Phone", "Email", "Balance Owed"])
+            tbl.setHorizontalHeaderLabels(["Company","Contact","Phone","Email","Balance Owed"])
             tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
             tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-            for row in rows:
-                r = tbl.rowCount(); tbl.insertRow(r)
-                total += row["total_owed"]
-                for col, val in enumerate([
-                    row["company_name"] or "",
-                    row["contact_name"] or "",
-                    row["phone"] or "",
-                    row["email"] or "",
-                    f"${row['total_owed']:,.2f}",
-                ]):
-                    item = QTableWidgetItem(val)
-                    if col == 4:
-                        item.setForeground(QColor(RED))
-                        item.setFont(QFont("", -1, QFont.Weight.Bold))
-                    tbl.setItem(r, col, item)
-
         elif rpt_type == "vehicles_due":
-            _today = datetime.now().date()
-            # Drop vehicles more than 9 months overdue
-            _drop_before = (_today - timedelta(days=274)).strftime("%Y-%m-%d")
+            tbl.setColumnCount(7)
+            tbl.setHorizontalHeaderLabels(["Due Date","Days","Plate","Year","Make / Model","Customer","Phone"])
+            tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+            tbl.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        else:
+            tbl.setColumnCount(6)
+            tbl.setHorizontalHeaderLabels(["#","Date","Customer","Amount","Payment","Result"])
+            tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
 
-            # Filter control row
-            _vdue_filters = [
-                ("30days",  "30 Days"),
-                ("60days",  "60 Days"),
-                ("90days",  "90 Days"),
-            ]
-            _filter_row = QHBoxLayout()
-            _filter_row.addWidget(QLabel("Show:"))
-            _vdue_cmb = QComboBox()
-            for _fk, _fl in _vdue_filters:
-                _vdue_cmb.addItem(_fl, _fk)
-            # Default to last used filter; remap old keys to '30days'
-            _valid_keys = {k for k, _ in _vdue_filters}
-            _saved_raw   = getattr(self, '_veh_due_filter', '30days')
-            _saved_filter = _saved_raw if _saved_raw in _valid_keys else '30days'
-            _vdue_cmb.setCurrentIndex(next((i for i,(k,_) in enumerate(_vdue_filters) if k==_saved_filter), 0))
-            _filter_row.addWidget(_vdue_cmb)
-            _filter_row.addStretch()
-            lay.addLayout(_filter_row)
+        summary = QLabel("")
+        summary.setStyleSheet(f"color:{PRIMARY}; font-weight:bold; font-size:11pt;")
 
-            def _vdue_query(fkey):
-                t = _today; d = _drop_before
+        # ── Refreshable table population ──────────────────────────────────
+        def _refresh():
+            nonlocal begin, end
+            if _begin_de:
+                begin = _begin_de.date().toString("yyyy-MM-dd")
+            if _end_de:
+                end = _end_de.date().toString("yyyy-MM-dd")
+            elif rpt_type == "daily" and _begin_de:
+                end = begin
+            tbl.setRowCount(0)
+            _total = 0.0
+
+            if rpt_type == "balances":
+                bal_rows = self.db.execute(
+                    "SELECT company_name, contact_name, phone, email, total_owed "
+                    "FROM accounts WHERE total_owed > 0 ORDER BY total_owed DESC"
+                ).fetchall()
+                for row in bal_rows:
+                    r = tbl.rowCount(); tbl.insertRow(r)
+                    _total += row["total_owed"]
+                    for col, val in enumerate([
+                        row["company_name"] or "", row["contact_name"] or "",
+                        row["phone"] or "", row["email"] or "",
+                        f"${row['total_owed']:,.2f}",
+                    ]):
+                        item = QTableWidgetItem(val)
+                        if col == 4:
+                            item.setForeground(QColor(RED))
+                            item.setFont(QFont("", -1, QFont.Weight.Bold))
+                        tbl.setItem(r, col, item)
+                summary.setText(f"Accounts with Outstanding Balances: {tbl.rowCount()}   |   Total Owed: ${_total:,.2f}")
+                dlg.setWindowTitle("Outstanding Account Balances")
+                return
+
+            if rpt_type == "vehicles_due":
+                _today = datetime.now().date()
+                _drop_before = (_today - timedelta(days=274)).strftime("%Y-%m-%d")
+                fkey = getattr(dlg, '_vdue_fkey', '30days')
                 if fkey == '60days':
-                    lo = d; hi = (t + timedelta(days=60)).strftime("%Y-%m-%d")
+                    lo, hi = _drop_before, (_today + timedelta(days=60)).strftime("%Y-%m-%d")
                 elif fkey == '90days':
-                    lo = d; hi = (t + timedelta(days=90)).strftime("%Y-%m-%d")
-                else:  # 30days default
-                    lo = d; hi = (t + timedelta(days=30)).strftime("%Y-%m-%d")
-                return self.db.execute("""
+                    lo, hi = _drop_before, (_today + timedelta(days=90)).strftime("%Y-%m-%d")
+                else:
+                    lo, hi = _drop_before, (_today + timedelta(days=30)).strftime("%Y-%m-%d")
+                veh_rows = self.db.execute("""
                     SELECT v.plate, v.vin, v.year, v.make, v.model, v.next_test_due,
                            c.first_name, c.last_name, c.company_name, c.phone
                     FROM vehicles v
@@ -6045,11 +6696,6 @@ class App(QMainWindow):
                       AND v.next_test_due >= ? AND v.next_test_due <= ?
                     ORDER BY v.next_test_due ASC
                 """, (lo, hi)).fetchall()
-
-            def _populate_vdue_tbl(fkey):
-                self._veh_due_filter = fkey
-                tbl.setRowCount(0)
-                veh_rows = _vdue_query(fkey)
                 for vr in veh_rows:
                     due_str = (vr["next_test_due"] or "").strip()
                     try:
@@ -6071,43 +6717,104 @@ class App(QMainWindow):
                         elif days_left <= 30:
                             item.setForeground(QColor("#D97706"))
                         tbl.setItem(r_idx, col, item)
+                overdue_ct = sum(1 for r in range(tbl.rowCount())
+                                 if tbl.item(r,1) and "overdue" in (tbl.item(r,1).text() or ""))
+                summary.setText(f"Vehicles shown: {tbl.rowCount()}   |   Overdue: {overdue_ct}")
+                dlg.setWindowTitle("Vehicles Due for Testing")
+                return
 
-            tbl.setColumnCount(7)
-            tbl.setHorizontalHeaderLabels(["Due Date","Days","Plate","Year","Make / Model","Customer","Phone"])
-            tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-            tbl.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-            _populate_vdue_tbl(_saved_filter)
-            _vdue_cmb.currentIndexChanged.connect(
-                lambda _: _populate_vdue_tbl(_vdue_cmb.currentData()))
+            # Date-range reports
+            try:
+                all_rows = self.db.execute(
+                    "SELECT invoice_number,invoice_date,customer_name,first_name,last_name,"
+                    "company_name,amount_cents,payment_method,is_estimate,test_result "
+                    "FROM invoices WHERE invoice_date>=? AND invoice_date<=? AND is_estimate=?"
+                    + _no_void + " ORDER BY invoice_date",
+                    (begin, end, 1 if rpt_type == "estimates" else 0)
+                ).fetchall()
+            except Exception as e:
+                QMessageBox.warning(dlg, "Error", str(e)); return
 
-        else:
-            # Standard report: #, Date, Customer, Amount, Payment, Result
-            tbl.setColumnCount(6)
-            tbl.setHorizontalHeaderLabels(["#","Date","Customer","Amount","Payment","Result"])
-            tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-            for row in all_rows:
-                cname = row["customer_name"] or f"{row['first_name']} {row['last_name']}".strip()
-                r = tbl.rowCount(); tbl.insertRow(r)
-                amt = row["amount_cents"]/100; total += amt
-                result = (row["test_result"] or "").upper()
-                for col,val in enumerate([str(row["invoice_number"] or "-"),row["invoice_date"],cname,
-                                          f"${amt:,.2f}",(row["payment_method"] or ""),result]):
-                    item = QTableWidgetItem(val)
-                    if col == 5:
-                        if result == "PASS":   item.setForeground(QColor(GREEN))
-                        elif result in ("FAIL","RETEST"): item.setForeground(QColor(RED))
-                    tbl.setItem(r,col,item)
+            if rpt_type == "by_pay":
+                from collections import defaultdict
+                groups = defaultdict(lambda: {"count":0,"total":0.0})
+                for row in all_rows:
+                    pt = (row["payment_method"] or "UNKNOWN").upper()
+                    groups[pt]["count"] += 1; groups[pt]["total"] += row["amount_cents"]/100
+                    _total += row["amount_cents"]/100
+                for pt, g in sorted(groups.items()):
+                    r = tbl.rowCount(); tbl.insertRow(r)
+                    for col, val in enumerate([f"{begin} - {end}", pt, str(g["count"]), f"${g['total']:,.2f}"]):
+                        tbl.setItem(r, col, QTableWidgetItem(val))
+
+            elif rpt_type == "by_svc":
+                from collections import defaultdict
+                svc_groups = defaultdict(lambda: {"count":0,"total":0.0})
+                try:
+                    lines = self.db.execute(
+                        "SELECT il.service, il.price FROM invoice_lines il "
+                        "JOIN invoices i ON il.invoice_id=i.invoice_id "
+                        "WHERE i.invoice_date>=? AND i.invoice_date<=? AND i.is_estimate=0",
+                        (begin, end)).fetchall()
+                    for ln in lines:
+                        svc = (ln["service"] or "UNKNOWN").upper()
+                        svc_groups[svc]["count"] += 1
+                        svc_groups[svc]["total"] += float(ln["price"] or 0)
+                    if not svc_groups:
+                        for row in all_rows:
+                            svc_groups["SMOG CHECK"]["count"] += 1
+                            svc_groups["SMOG CHECK"]["total"] += row["amount_cents"]/100
+                    for svc, g in sorted(svc_groups.items()):
+                        r = tbl.rowCount(); tbl.insertRow(r)
+                        _total += g["total"]
+                        for col, val in enumerate([svc, str(g["count"]), f"${g['total']:,.2f}"]):
+                            tbl.setItem(r, col, QTableWidgetItem(val))
+                except Exception:
+                    for row in all_rows:
+                        r = tbl.rowCount(); tbl.insertRow(r)
+                        for col, val in enumerate(["SMOG CHECK","1",f"${row['amount_cents']/100:,.2f}"]):
+                            tbl.setItem(r, col, QTableWidgetItem(val))
+                        _total += row["amount_cents"]/100
+
+            else:
+                for row in all_rows:
+                    cname = row["customer_name"] or f"{row['first_name']} {row['last_name']}".strip()
+                    r = tbl.rowCount(); tbl.insertRow(r)
+                    amt = row["amount_cents"]/100; _total += amt
+                    result = (row["test_result"] or "").upper()
+                    for col, val in enumerate([str(row["invoice_number"] or "-"), row["invoice_date"], cname,
+                                               f"${amt:,.2f}", (row["payment_method"] or ""), result]):
+                        item = QTableWidgetItem(val)
+                        if col == 5:
+                            if result == "PASS":   item.setForeground(QColor(GREEN))
+                            elif result in ("FAIL","RETEST"): item.setForeground(QColor(RED))
+                        tbl.setItem(r, col, item)
+
+            summary.setText(f"Period: {begin} -> {end}   |   Records: {tbl.rowCount()}   |   Total: ${_total:,.2f}")
+            dlg.setWindowTitle(f"Report - {rpt_type}  ({begin} to {end})")
+
+        # ── Vehicles Due filter bar ───────────────────────────────────────
+        if rpt_type == "vehicles_due":
+            _vdue_filters = [("30days","30 Days"),("60days","60 Days"),("90days","90 Days")]
+            _filter_row = QHBoxLayout()
+            _filter_row.addWidget(QLabel("Show:"))
+            _vdue_cmb = QComboBox()
+            for _fk, _fl in _vdue_filters: _vdue_cmb.addItem(_fl, _fk)
+            _valid_keys = {k for k,_ in _vdue_filters}
+            _saved_raw = getattr(self, '_veh_due_filter', '30days')
+            _saved_filter = _saved_raw if _saved_raw in _valid_keys else '30days'
+            _vdue_cmb.setCurrentIndex(next((i for i,(k,_) in enumerate(_vdue_filters) if k==_saved_filter), 0))
+            _filter_row.addWidget(_vdue_cmb); _filter_row.addStretch()
+            lay.addLayout(_filter_row)
+            dlg._vdue_fkey = _saved_filter
+            def _on_vdue_filter(_):
+                self._veh_due_filter = _vdue_cmb.currentData()
+                dlg._vdue_fkey = self._veh_due_filter
+                _refresh()
+            _vdue_cmb.currentIndexChanged.connect(_on_vdue_filter)
 
         lay.addWidget(tbl)
-        if rpt_type == "balances":
-            summary = QLabel(f"Accounts with Outstanding Balances: {tbl.rowCount()}   |   Total Owed: ${total:,.2f}")
-        elif rpt_type == "vehicles_due":
-            overdue_ct = sum(1 for r in range(tbl.rowCount())
-                             if tbl.item(r,1) and "overdue" in (tbl.item(r,1).text() or ""))
-            summary = QLabel(f"Vehicles shown: {tbl.rowCount()}   |   Overdue: {overdue_ct}")
-        else:
-            summary = QLabel(f"Period: {begin} -> {end}   |   Records: {tbl.rowCount()}   |   Total: ${total:,.2f}")
-        summary.setStyleSheet(f"color:{PRIMARY}; font-weight:bold; font-size:11pt;"); lay.addWidget(summary)
+        lay.addWidget(summary)
 
         btn_row = QHBoxLayout()
         pr_b = QPushButton("Print Report"); pr_b.setObjectName("primary")
@@ -6129,6 +6836,10 @@ class App(QMainWindow):
         cl_b = QPushButton("Close"); cl_b.setObjectName("secondary")
         cl_b.clicked.connect(dlg.reject); btn_row.addWidget(cl_b)
         btn_row.addStretch(); lay.addLayout(btn_row)
+
+        if _begin_de:
+            _go_btn.clicked.connect(_refresh)
+        _refresh()
         dlg.exec()
 
     # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -6769,7 +7480,7 @@ class App(QMainWindow):
 
         # Three fast flat queries — no correlated subqueries
         all_rows = self.db.execute(
-            "SELECT * FROM customers ORDER BY company_name, last_name, first_name"
+            "SELECT * FROM customers ORDER BY UPPER(COALESCE(NULLIF(TRIM(company_name),''), TRIM(first_name||' '||last_name)))"
         ).fetchall()
 
         # Aggregated stats per customer (single GROUP BY scan)
@@ -7073,6 +7784,19 @@ class App(QMainWindow):
                                  ("email","Email",cust["email"]),("address","Address",cust["address"]),
                                  ("city","City",cust["city"]),("state","State",cust["state"]),("zip","ZIP",cust["zip"])]:
             e=QLineEdit(val or ""); fields[key]=e; form.addRow(f"{lbl_txt}:",e)
+        # Phone auto-format on leave
+        def _fmt_ph(): fields["phone"].setText(format_phone(fields["phone"].text()))
+        fields["phone"].editingFinished.connect(_fmt_ph)
+        # ZIP → city/state lookup
+        def _zip_lookup_dlg(z):
+            if len(z)!=5 or not z.isdigit(): return
+            if fields["city"].text().strip() and fields["state"].text().strip(): return
+            self._cust_dlg_zip_worker = ZipWorker(z)
+            self._cust_dlg_zip_worker.done.connect(
+                lambda c,s: (fields["city"].setText(c) if c and not fields["city"].text().strip() else None,
+                             fields["state"].setText(s) if s and not fields["state"].text().strip() else None))
+            self._cust_dlg_zip_worker.start()
+        fields["zip"].textChanged.connect(_zip_lookup_dlg)
         disc_val = str(cust["discount_percent"] or "").rstrip("0").rstrip(".") if cust["discount_percent"] else ""
         disc_e = QLineEdit(disc_val); fields["discount_percent"] = disc_e
         disc_type_cb = QComboBox(); disc_type_cb.addItems(["EACH LINE", "TOTAL"])
@@ -7107,6 +7831,19 @@ class App(QMainWindow):
         for key,lbl_txt in [("first_name","First"),("last_name","Last"),("company_name","Company"),
                              ("phone","Phone"),("email","Email"),("address","Address"),("city","City"),("state","State"),("zip","ZIP")]:
             e=QLineEdit(); fields[key]=e; form.addRow(f"{lbl_txt}:",e)
+        # Phone auto-format on leave
+        def _fmt_ph_new(): fields["phone"].setText(format_phone(fields["phone"].text()))
+        fields["phone"].editingFinished.connect(_fmt_ph_new)
+        # ZIP → city/state lookup
+        def _zip_lookup_new(z):
+            if len(z)!=5 or not z.isdigit(): return
+            if fields["city"].text().strip() and fields["state"].text().strip(): return
+            self._cust_new_zip_worker = ZipWorker(z)
+            self._cust_new_zip_worker.done.connect(
+                lambda c,s: (fields["city"].setText(c) if c and not fields["city"].text().strip() else None,
+                             fields["state"].setText(s) if s and not fields["state"].text().strip() else None))
+            self._cust_new_zip_worker.start()
+        fields["zip"].textChanged.connect(_zip_lookup_new)
         disc_e = QLineEdit(); fields["discount_percent"] = disc_e
         disc_type_cb = QComboBox(); disc_type_cb.addItems(["EACH LINE", "TOTAL"])
         disc_row2 = QHBoxLayout(); disc_row2.addWidget(disc_e); disc_row2.addWidget(disc_type_cb)
@@ -7140,8 +7877,57 @@ class App(QMainWindow):
         menu.addAction("View", self._cust_view)
         menu.addAction("Edit", self._cust_edit)
         menu.addSeparator()
+        menu.addAction("Create Account from Customer", self._cust_create_account)
+        menu.addSeparator()
         menu.addAction("Delete...", self._cust_delete)
         menu.exec(self._cust_table.viewport().mapToGlobal(pos))
+
+    def _cust_create_account(self):
+        cid = self._cust_selected_id()
+        if not cid: return
+        cust = self.db.execute("SELECT * FROM customers WHERE customer_id=?", (cid,)).fetchone()
+        if not cust: return
+        first = (cust["first_name"] or "").strip().upper()
+        last  = (cust["last_name"]  or "").strip().upper()
+        co    = (cust["company_name"] or "").strip().upper()
+        # Check if account already exists
+        existing_key = co if co else None
+        if not existing_key and (first or last):
+            existing_key = f"{first} {last}".strip()
+        if existing_key:
+            existing = self.db.execute(
+                "SELECT company_name FROM accounts WHERE UPPER(company_name)=UPPER(?)",
+                (existing_key,)).fetchone()
+            if existing:
+                if QMessageBox.question(self, "Account Exists",
+                        f"An account for '{existing_key}' already exists.\nOpen it on the Accounts page?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                        ) == QMessageBox.StandardButton.Yes:
+                    self.show_screen("account_setup")
+                    self._on_show_account_setup(existing["company_name"])
+                return
+        # Pre-fill the new account dialog with customer data
+        import uuid as _uuid
+        is_individual = 1 if not co else 0
+        if co:
+            name = co
+        else:
+            name = f"__INDV_{_uuid.uuid4().hex[:10].upper()}"
+        phone   = (cust["phone"]   or "").strip()
+        email   = (cust["email"]   or "").strip()
+        address = (cust["address"] or "").strip().upper()
+        city    = (cust["city"]    or "").strip().upper()
+        state   = (cust["state"]   or "").strip().upper()
+        zipcode = (cust["zip"]     or "").strip()
+        self.db.execute("""
+            INSERT INTO accounts(company_name,total_owed,updated_at,first_name,last_name,
+                is_individual,phone,email,address1,city,state,zip,discount_percent,discount_type)
+            VALUES(?,0,?,?,?,?,?,?,?,?,?,?,0,'LINE')
+            ON CONFLICT(company_name) DO NOTHING
+        """, (name, now_iso(), first, last, is_individual, phone, email, address, city, state, zipcode))
+        self.db.commit()
+        self.show_screen("account_setup")
+        self._on_show_account_setup(name)
 
     def _cust_delete(self):
         cid = self._cust_selected_id()
@@ -7467,6 +8253,7 @@ def main():
         _af.setPointSizeF(10.5)
         _af.setWeight(QFont.Weight.Medium)
         app.setFont(_af)
+
         init_db()
         migrate_db()
 
