@@ -1,5 +1,5 @@
-"""
-Blue Sky Smog - Desktop App  (PyQt6 rewrite)
+﻿"""
+SmogDesk - Desktop App  (PyQt6 rewrite)
 Requires: pip install pyqt6 requests reportlab pymupdf
 """
 
@@ -11,7 +11,7 @@ APP_VERSION = "1.2.42"
 _UPDATE_API  = "https://api.github.com/repos/blueskysmog1/bluesky-smog-mac/releases/latest"
 _DOWNLOAD_URL = "https://github.com/blueskysmog1/bluesky-smog-mac/releases/latest/download/BlueSkyDesktop.dmg"
 
-# â"€â"€ PyQt6 â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+# â"â‚¬â"â‚¬ PyQt6 â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QStackedWidget,
     QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout,
@@ -31,6 +31,8 @@ from PyQt6.QtGui import (
     QFont, QColor, QIcon, QPixmap, QBrush, QAction, QImage,
     QPainter, QPen, QPalette, QCursor, QDesktopServices,
 )
+from PyQt6.QtSvg import QSvgRenderer
+from PyQt6.QtCore import QSize
 
 try:
     import win32print, win32api
@@ -79,9 +81,9 @@ def _ensure_reportlab():
     from reportlab.graphics.barcode import code128 as _c128
     LETTER = _L; canvas = _cv; colors = _col; ImageReader = _ir; code128 = _c128
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  CONFIG & CONSTANTS
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 API_BASE      = "https://api.blueskysmog.net"
 
@@ -92,9 +94,13 @@ def _icon_path():
 
 DEVICE_ID     = f"DESKTOP-{uuid.getnode()}"
 SYNC_INTERVAL = 8
-APP_NAME      = "BlueSkyDesktop"
+APP_NAME      = "SmogDesk"
 _base         = os.environ.get("APPDATA") or os.path.expanduser("~")
 DATA_DIR      = Path(_base) / APP_NAME
+_old_data_dir = Path(_base) / "BlueSkyDesktop"
+if not DATA_DIR.exists() and _old_data_dir.exists():
+    import shutil as _shutil
+    _shutil.copytree(str(_old_data_dir), str(DATA_DIR))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH       = str(DATA_DIR / "local.db")
 CREDS_FILE    = str(DATA_DIR / "creds.json")
@@ -277,9 +283,9 @@ DEFAULT_SERVICES = {
     "Clean Truck Opacity": {"price": 180.0,  "cert_fee": 0.0},
 }
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  DATABASE
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 def get_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -413,7 +419,7 @@ def migrate_db():
         c.execute("ALTER TABLE customers ADD COLUMN discount_percent REAL NOT NULL DEFAULT 0.0")
     if "discount_type" not in cust_cols:
         c.execute("ALTER TABLE customers ADD COLUMN discount_type TEXT NOT NULL DEFAULT 'PERCENT'")
-    # vehicles migration — test interval / due date synced from mobile
+    # vehicles migration - test interval / due date synced from mobile
     veh_cols = {row[1] for row in c.execute("PRAGMA table_info(vehicles)").fetchall()}
     if "test_interval_days" not in veh_cols:
         c.execute("ALTER TABLE vehicles ADD COLUMN test_interval_days INTEGER")
@@ -425,6 +431,8 @@ def migrate_db():
         c.execute("ALTER TABLE vehicles ADD COLUMN service_type TEXT NOT NULL DEFAULT ''")
     if "truck_number" not in veh_cols:
         c.execute("ALTER TABLE vehicles ADD COLUMN truck_number TEXT NOT NULL DEFAULT ''")
+    if "hidden_from_vd" not in veh_cols:
+        c.execute("ALTER TABLE vehicles ADD COLUMN hidden_from_vd INTEGER NOT NULL DEFAULT 0")
     # Migrate data from old column names used in v1.1.x (service_interval_days / next_due)
     veh_cols = {row[1] for row in c.execute("PRAGMA table_info(vehicles)").fetchall()}
     if "service_interval_days" in veh_cols:
@@ -437,9 +445,9 @@ def migrate_db():
                        AND next_due != ''""")
     conn.commit(); conn.close()
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  CREDENTIALS & API
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 def load_creds():
     try:
@@ -499,9 +507,9 @@ def api_decode_vin(vin):
         return res.get("Model Year",""), res.get("Make",""), res.get("Model","")
     except Exception: return "","",""
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  LOCAL DB HELPERS
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 def now_iso(): return datetime.utcnow().isoformat()
 def get_setting(conn, key, default=""):
@@ -546,7 +554,7 @@ def upsert_vehicle(conn, customer_id, vin, plate, make, model, year, vehicle_id=
         if r:
             conn.execute("UPDATE vehicles SET customer_id=?,vin=?,plate=?,make=?,model=?,year=?,truck_number=?,updated_at=? WHERE vehicle_id=?",
                          (customer_id,vin,plate,make,model,year,_tn(r["truck_number"]),now_iso(),vehicle_id)); conn.commit(); return vehicle_id
-        # Not found by vehicle_id — check plate/VIN to avoid creating a duplicate row
+        # Not found by vehicle_id - check plate/VIN to avoid creating a duplicate row
         if plate or vin:
             r2 = conn.execute("SELECT vehicle_id, truck_number FROM vehicles WHERE (plate!='' AND plate=?) OR (vin!='' AND vin=?)", (plate,vin)).fetchone()
             if r2:
@@ -600,9 +608,9 @@ def safe_filename_part(text):
     text = re.sub(r"[^A-Za-z0-9]+","_",text)
     return re.sub(r"_+","_",text).strip("_") or "Customer"
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  SYNC ENGINE  (identical to original)
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 class SyncEngine:
     def __init__(self):
@@ -629,7 +637,7 @@ class SyncEngine:
         conn=get_db()
         try:
             # Reset the sequence pointer so we replay from the beginning.
-            # Local data stays intact — upserts are idempotent and delete
+            # Local data stays intact - upserts are idempotent and delete
             # events will still remove anything that was deleted on the server.
             set_last_seq(conn, 0); conn.commit()
             slog("[ForcePull] last_seq reset to 0 - replaying events from server...")
@@ -691,7 +699,7 @@ class SyncEngine:
                 total += len(page)
                 slog(f"[ForcePull] Page done: {len(page)} events (total {total})")
                 if notify_cb:
-                    notify_cb(f"Syncing… {total} records processed")
+                    notify_cb(f"Syncing... {total} records processed")
                 if len(page) < PAGE: break  # final page
                 since = new_seq
 
@@ -713,8 +721,11 @@ class SyncEngine:
             except: pass
     def _loop(self):
         while self._running:
-            try: self._flush(); self._pull()
-            except Exception as e: slog(f"[Loop] unhandled: {e}")
+            # Skip this cycle if force_pull holds the lock
+            if self._lock.acquire(blocking=False):
+                try: self._flush(); self._pull()
+                except Exception as e: slog(f"[Loop] unhandled: {e}")
+                finally: self._lock.release()
             time.sleep(SYNC_INTERVAL)
     def _flush(self):
         if not requests: return
@@ -827,7 +838,7 @@ class SyncEngine:
                 r=conn.execute("SELECT company_name FROM accounts WHERE UPPER(company_name)=UPPER(?)",(cname,)).fetchone()
                 if r: company_name=r["company_name"]
         if not company_name: return
-        # Normalize to canonical account key — handles case differences and individual (__INDV__) accounts
+        # Normalize to canonical account key - handles case differences and individual (__INDV__) accounts
         acct=conn.execute("SELECT company_name FROM accounts WHERE UPPER(company_name)=UPPER(?)",(company_name,)).fetchone()
         if not acct:
             _parts=company_name.strip().split(None,1)
@@ -840,13 +851,13 @@ class SyncEngine:
         note=p.get("note",""); invoice_id=p.get("invoice_id",""); payment_number=p.get("payment_number","")
         partial_json=p.get("partial_json","{}")
         rec_type=p.get("type","payment")
-        # Idempotent history insert — rowcount tells us if this is the first time
+        # Idempotent history insert - rowcount tells us if this is the first time
         ins=conn.execute(
             "INSERT OR IGNORE INTO account_history(company_name,entry_date,type,amount,note,invoice_id,payment_number,payment_id,partial_json) "
             "VALUES(?,?,?,?,?,?,?,?,?)",
             (company_name,entry_date,rec_type,amount,note,invoice_id,payment_number,payment_id,partial_json))
         if ins.rowcount>0:
-            # First time we've seen this payment — update running balance
+            # First time we've seen this payment - update running balance
             if rec_type=="adjustment":
                 conn.execute("UPDATE accounts SET total_owed=0,updated_at=? WHERE UPPER(company_name)=UPPER(?)",(now_iso(),company_name))
                 slog(f"[Adjustment] balance zeroed for {company_name}")
@@ -943,7 +954,7 @@ class SyncEngine:
         try:
             iid=p.get("invoice_id","")
             if not iid: return
-            # Reject invoices that were deleted locally — tombstone wins, re-push the delete
+            # Reject invoices that were deleted locally - tombstone wins, re-push the delete
             if conn.execute("SELECT 1 FROM deleted_invoices WHERE invoice_id=?",(iid,)).fetchone():
                 conn.execute("DELETE FROM invoice_lines WHERE invoice_id=?",(iid,))
                 conn.execute("DELETE FROM invoices WHERE invoice_id=?",(iid,))
@@ -953,7 +964,7 @@ class SyncEngine:
             if existing and not existing["from_mobile"]:
                 incoming_status=(p.get("status","")or"").upper()
                 existing_status=(existing["status"]or"ESTIMATE").upper()
-                # Allow mobile to finalize a desktop-created estimate (status change ESTIMATE→*)
+                # Allow mobile to finalize a desktop-created estimate (status change ESTIMATEâ†’*)
                 is_finalization = existing_status=="ESTIMATE" and incoming_status not in ("","ESTIMATE","DRAFT")
                 if not is_finalization:
                     if incoming_num and incoming_num!=existing["invoice_number"]:
@@ -1019,7 +1030,7 @@ class SyncEngine:
                     # Old mobile bug: stored amount_cents (e.g. 5000) as price instead
                     # of dollars (e.g. 50.0).
                     # Heuristic 1: if price exactly matches invoice's amount_cents -> cents
-                    # Heuristic 2: if price is a whole number â‰¥ 500 -> almost certainly cents
+                    # Heuristic 2: if price is a whole number ââ€°¥ 500 -> almost certainly cents
                     #   (a smog shop service priced at $500+ would use the new unit_price_cents field)
                     if raw_price>0 and raw_price==int(raw_price):
                         _is_cents=False
@@ -1071,13 +1082,13 @@ class SyncEngine:
 
 SYNC = SyncEngine()
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  PDF  (identical to original)
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 def print_pdf(pdf_path, printer_name="", copies=1, parent_widget=None, silent=False):
     import subprocess, shutil
-    # 1. SumatraPDF — silent, specific printer, most reliable
+    # 1. SumatraPDF - silent, specific printer, most reliable
     sumatra = shutil.which("SumatraPDF") or r"C:\Program Files\SumatraPDF\SumatraPDF.exe"
     if os.path.exists(sumatra):
         try:
@@ -1085,7 +1096,7 @@ def print_pdf(pdf_path, printer_name="", copies=1, parent_widget=None, silent=Fa
             for _ in range(copies): subprocess.Popen([sumatra,"-print-to",target,"-silent",pdf_path])
             return
         except Exception: pass
-    # 2. Qt native printing — QPrinter routes directly to the named printer via Qt's
+    # 2. Qt native printing - QPrinter routes directly to the named printer via Qt's
     #    printing stack (already bundled; same system used by printer settings screen)
     try:
         from PyQt6.QtPrintSupport import QPrinter, QPrinterInfo
@@ -1121,7 +1132,7 @@ def print_pdf(pdf_path, printer_name="", copies=1, parent_widget=None, silent=Fa
         if parent_widget:
             QMessageBox.warning(parent_widget, "Print Error",
                 f"Could not print to '{printer_name}':\n{e}\n\nTry installing SumatraPDF.")
-    # 3. Last resort — system default printer only, skipped for silent auto-print
+    # 3. Last resort - system default printer only, skipped for silent auto-print
     if not silent:
         try:
             if sys.platform == "win32":
@@ -1169,7 +1180,7 @@ def _best_vehicle_for_invoice(conn,inv):
 def draw_header(c, biz, title, subtitle=""):
     _ensure_reportlab()
     w, h = LETTER
-    # ── Logo (left) ──────────────────────────────────────────────────────────
+    # -- Logo (left) ----------------------------------------------------------
     logo_path = (biz.get("logo_path") or "").strip(); biz_x = 36
     if logo_path and os.path.exists(logo_path):
         try:
@@ -1182,9 +1193,9 @@ def draw_header(c, biz, title, subtitle=""):
                             preserveAspectRatio=True, mask="auto")
                 biz_x = 126
             except Exception: pass
-    # ── Business info (left) ─────────────────────────────────────────────────
+    # -- Business info (left) -------------------------------------------------
     c.setFillColor(colors.black); c.setFont("Helvetica-Bold", 14)
-    c.drawString(biz_x, h-28, biz.get("name", "BLUE SKY SMOG"))
+    c.drawString(biz_x, h-28, biz.get("name", "SMOGDESK"))
     c.setFont("Helvetica", 9); info_y = h-43
     email   = (biz.get("email")   or "").strip()
     website = (biz.get("website") or "").strip()
@@ -1197,7 +1208,7 @@ def draw_header(c, biz, title, subtitle=""):
         f"ARD #: {biz.get('ard','')}" if biz.get("ard") else "",
     ]):
         c.drawString(biz_x, info_y, str(line)); info_y -= 12
-    # ── QR code (right) ──────────────────────────────────────────────────────
+    # -- QR code (right) ------------------------------------------------------
     has_qr = False
     qr_path = (biz.get("qr_path") or "").strip()
     if qr_path and os.path.exists(qr_path):
@@ -1206,7 +1217,7 @@ def draw_header(c, biz, title, subtitle=""):
                         preserveAspectRatio=True)
             has_qr = True
         except Exception: pass
-    # ── Title (right) ────────────────────────────────────────────────────────
+    # -- Title (right) --------------------------------------------------------
     title_x = w-134 if has_qr else w-36
     c.setFont("Helvetica-Bold", 15); c.drawRightString(title_x, h-28, title)
     if subtitle: c.setFont("Helvetica", 9); c.drawRightString(title_x, h-44, subtitle)
@@ -1367,9 +1378,9 @@ class _UpComboBox(QComboBox):
             g = self.mapToGlobal(_QP(0, 0))
             popup.move(g.x(), g.y() - popup.height())
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  STYLESHEET
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 APP_STYLE = """
 QWidget { font-size: 10pt; font-weight: bold; color: #111827; }
@@ -1474,9 +1485,9 @@ QComboBox QAbstractItemView::item:selected {
 QDateEdit { color: #111827; background: white; selection-background-color: #DBEAFE; selection-color: #111827; }
 """
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  WORKER THREADS
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 class VinWorker(QThread):
     done = pyqtSignal(str, str, str)
@@ -1498,9 +1509,9 @@ class ZipWorker(QThread):
             self.done.emit(city, state)
         except Exception: self.done.emit("", "")
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  HELPERS
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 _BTN_STYLES = {
     "primary":   f"background:{CLR_BLUE};color:white;",
@@ -1540,9 +1551,9 @@ def _upper_entry(le: QLineEdit):
     """Force uppercase on a QLineEdit."""
     le.textChanged.connect(lambda t: le.setText(t.upper()) if t != t.upper() else None)
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  ADMIN COMPANY DETAIL DIALOG  (master only)
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 class AdminCompanyDialog(QDialog):
     """Detail view for a single company in the master admin dashboard."""
@@ -1575,7 +1586,7 @@ class AdminCompanyDialog(QDialog):
         tl = QLabel(co_name); tl.setStyleSheet(f"color:{PRIMARY}; font-size:14pt; font-weight:bold;")
         cl.addWidget(tl)
 
-        # â"€â"€ Account Info â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        # â"â‚¬â"â‚¬ Account Info â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
         sus       = self.co_info.get("is_suspended", False)
         plan      = self.sub_status.get("plan","?")
         is_exempt = (plan == "owner")
@@ -1594,7 +1605,7 @@ class AdminCompanyDialog(QDialog):
             ig.addWidget(vl, i, 1)
         cl.addWidget(info_grp)
 
-        # â"€â"€ Billing Summary â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        # â"â‚¬â"â‚¬ Billing Summary â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
         if self.monthly:
             now_month      = datetime.now().strftime("%Y-%m")
             this_month_row = next((m for m in self.monthly if m["month"]==now_month), None)
@@ -1655,7 +1666,7 @@ class AdminCompanyDialog(QDialog):
                     mb_tbl.setItem(i, col, item)
             mb_lay.addWidget(mb_tbl); cl.addWidget(mb_grp)
 
-        # â"€â"€ Subscription Status â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        # â"â‚¬â"â‚¬ Subscription Status â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
         sub_grp = QGroupBox("Subscription Status"); sub_lay = QVBoxLayout(sub_grp)
         can = self.sub_status.get("can_create", False)
         sh  = QHBoxLayout()
@@ -1673,14 +1684,14 @@ class AdminCompanyDialog(QDialog):
             ph.addWidget(pb)
         ph.addStretch(); sub_lay.addLayout(ph); cl.addWidget(sub_grp)
 
-        # â"€â"€ Admin Notes â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        # â"â‚¬â"â‚¬ Admin Notes â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
         notes_grp = QGroupBox("Admin Notes"); notes_lay = QVBoxLayout(notes_grp)
         self._notes_e = QTextEdit(self.co_info.get("admin_notes",""))
         self._notes_e.setMaximumHeight(100); notes_lay.addWidget(self._notes_e)
         sn_b = btn("Save Notes","primary"); sn_b.clicked.connect(self._save_notes)
         notes_lay.addWidget(sn_b); cl.addWidget(notes_grp)
 
-        # â"€â"€ Action Buttons â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        # â"â‚¬â"â‚¬ Action Buttons â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
         acts = QHBoxLayout()
         if sus:
             ub = btn("Unsuspend","success"); ub.clicked.connect(self._unsuspend); acts.addWidget(ub)
@@ -1745,9 +1756,9 @@ class AdminCompanyDialog(QDialog):
             QMessageBox.critical(self,"Error",f"Failed:\n{e}")
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  LOGIN DIALOG
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 
 class SmogMasterImportDialog(QDialog):
@@ -1837,7 +1848,7 @@ class SmogMasterImportDialog(QDialog):
 class LoginDialog(QDialog):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Blue Sky Smog - Sign In")
+        self.setWindowTitle("SmogDesk - Sign In")
         self.setFixedWidth(400)
         self.setModal(True)
         self._token = None
@@ -1845,7 +1856,7 @@ class LoginDialog(QDialog):
 
     def _build(self):
         lay = QVBoxLayout(self); lay.setSpacing(12); lay.setContentsMargins(32,32,32,32)
-        title = QLabel("BLUE SKY SMOG"); title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title = QLabel("SMOGDESK"); title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet(f"color:{PRIMARY}; font-size:18pt; font-weight:bold;")
         lay.addWidget(title)
         sub = QLabel("Sign in to continue"); sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1926,7 +1937,7 @@ class LoginDialog(QDialog):
         def _send():
             u = usr_e.text().strip().lower()
             if not u: err_lbl.setText("Enter your username."); return
-            err_lbl.setText("Sending…"); QApplication.processEvents()
+            err_lbl.setText("Sending..."); QApplication.processEvents()
             try:
                 r = requests.post(f"{API_BASE}/v1/auth/forgot_password",
                                   json={"username": u}, timeout=10)
@@ -1950,7 +1961,7 @@ class LoginDialog(QDialog):
             if len(code) != 6: err_lbl.setStyleSheet("color:red;"); err_lbl.setText("Enter the 6-digit code."); return
             if len(newpw) < 8: err_lbl.setStyleSheet("color:red;"); err_lbl.setText("Password must be at least 8 characters."); return
             if newpw != con: err_lbl.setStyleSheet("color:red;"); err_lbl.setText("Passwords do not match."); return
-            err_lbl.setText("Resetting…"); QApplication.processEvents()
+            err_lbl.setText("Resetting..."); QApplication.processEvents()
             try:
                 r = requests.post(f"{API_BASE}/v1/auth/verify_reset_code",
                                   json={"username": u, "code": code, "new_password": newpw}, timeout=10)
@@ -2030,7 +2041,7 @@ class LoginDialog(QDialog):
                             "company_id": company_id, "company_name": company_name})
                 self._token = token
                 QMessageBox.information(self, "Account Created",
-                    f"Welcome to Blue Sky Smog, {company_name}!\n\n"
+                    f"Welcome to SmogDesk, {company_name}!\n\n"
                     "Your 30-day free trial has started.\n"
                     "You are now signed in.")
                 self.accept()
@@ -2096,9 +2107,9 @@ class LoginDialog(QDialog):
         except Exception as e:
             self._err_lbl.setText(f"Manage Subscription error: {e}")
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  PDF VIEWER DIALOG
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 class BarChartWidget(QWidget):
     """Custom painted bar chart for the reports screen."""
@@ -2229,9 +2240,9 @@ class PdfViewerDialog(QDialog):
             except: pass
         print_pdf(self.pdf_path, printer_name=printer_name, copies=copies, parent_widget=self)
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  MAIN APPLICATION
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 class App(QMainWindow):
     _sync_signal   = pyqtSignal()
@@ -2240,7 +2251,7 @@ class App(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Blue Sky Smog")
+        self.setWindowTitle("SmogDesk")
         try: self.setWindowIcon(QIcon(_icon_path()))
         except Exception: pass
 
@@ -2288,7 +2299,7 @@ class App(QMainWindow):
         # Apply global stylesheet
         QApplication.instance().setStyleSheet(_APP_STYLE)
 
-        # ── New sidebar layout ──────────────────────────────────────
+        # -- New sidebar layout --------------------------------------
         central = QWidget(); central.setObjectName("appRoot")
         _mh = QHBoxLayout(central); _mh.setContentsMargins(0,0,0,0); _mh.setSpacing(0)
         self.setCentralWidget(central)
@@ -2302,22 +2313,12 @@ class App(QMainWindow):
         right.setStyleSheet(f"QWidget#rightPanel {{ background: {CLR_SURFACE}; }}")
         _rv = QVBoxLayout(right); _rv.setContentsMargins(0,0,0,0); _rv.setSpacing(0)
 
-        # Topbar
-        self._topbar = QWidget(); self._topbar.setObjectName("topbar")
-        self._topbar.setFixedHeight(46)
-        self._topbar.setStyleSheet(
-            f"QWidget#topbar {{ background:{CLR_CARD}; border-bottom:1px solid {CLR_BORDER}; }}")
-        _tbl = QHBoxLayout(self._topbar); _tbl.setContentsMargins(16,0,16,0); _tbl.setSpacing(8)
-        self._topbar_title_lbl = QLabel("Documents")
-        self._topbar_title_lbl.setStyleSheet(
-            f"color:{CLR_TEXT}; font-size:12pt; font-weight:600; background:transparent;")
-        _tbl.addWidget(self._topbar_title_lbl); _tbl.addStretch()
+        # Topbar (hidden - each page has its own built-in header)
+        self._topbar = QWidget(); self._topbar.setVisible(False); self._topbar.setFixedHeight(0)
+        self._topbar_title_lbl = QLabel()
         self._topbar_right = QWidget()
-        self._topbar_right.setStyleSheet("background:transparent;")
-        _trh = QHBoxLayout(self._topbar_right); _trh.setContentsMargins(0,0,0,0); _trh.setSpacing(8)
+        _trh = QHBoxLayout(self._topbar_right); _trh.setContentsMargins(0,0,0,0)
         self._topbar_right_layout = _trh
-        _tbl.addWidget(self._topbar_right)
-        _rv.addWidget(self._topbar)
 
         # Page stack
         self._stack = QStackedWidget()
@@ -2451,123 +2452,200 @@ class App(QMainWindow):
         if biz: return biz.upper()
         creds_name = load_creds().get("company_name","").strip()
         if creds_name: return creds_name.upper()
-        return "BLUE SKY SMOG"
+        return "SMOGDESK"
 
     def _refresh_sidebar_name(self):
         try:
             name = self._get_display_company_name()
             self._sb_biz_name.setText(name)
+            # Update logo letter
+            self._sb_logo_lbl.setText(name[0].upper() if name else "B")
+            # Try to load custom logo image
             biz = get_business_settings(self.db)
-            sub = biz.get("address_line2","").strip() or biz.get("address_line1","").strip() or ""
-            sub = re.sub(r'\s+\d{5}(-\d{4})?\s*$', '', sub).strip()
-            self._sb_biz_sub.setText(sub)
-            # Try to load logo
-            logo_path = get_business_settings(self.db).get("logo_path","")
+            logo_path = biz.get("logo_path","")
             if logo_path and os.path.isfile(logo_path):
                 pix = QPixmap(logo_path).scaled(
-                    30, 30, Qt.AspectRatioMode.KeepAspectRatio,
+                    36, 36, Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation)
                 self._sb_logo_lbl.setPixmap(pix)
                 self._sb_logo_lbl.setText("")
             else:
                 self._sb_logo_lbl.setPixmap(QPixmap())
-                self._sb_logo_lbl.setText("✦")
+                self._sb_logo_lbl.setText(name[0].upper() if name else "B")
         except Exception: pass
 
     def _make_header(self, show_back=False):
-        """Legacy stub – sidebar + topbar now replace the old header. Returns invisible 0-height widget."""
+        """Legacy stub - sidebar + topbar now replace the old header. Returns invisible 0-height widget."""
         hdr = QWidget(); hdr.setFixedHeight(0); hdr.setVisible(False)
         return hdr
 
+    # -- Inline SVG icon paths (Tabler Icons, MIT license) ---------------
+    _SB_ICON_PATHS = {
+        "doc_list":       '<path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2z"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/>',
+        "customers":      '<path stroke="none" d="M0 0h24v24H0z" fill="none"/><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0 -3 -3.85"/>',
+        "estimate_entry": '<path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2z"/><line x1="9" y1="9" x2="10" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/>',
+        "reports":        '<path stroke="none" d="M0 0h24v24H0z" fill="none"/><rect x="3" y="12" width="6" height="8" rx="1"/><rect x="9" y="8" width="6" height="12" rx="1"/><rect x="15" y="4" width="6" height="16" rx="1"/><line x1="4" y1="20" x2="20" y2="20"/>',
+        "vehicles_due":   '<path stroke="none" d="M0 0h24v24H0z" fill="none"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/><path d="M5 17h-2v-6l2 -5h9l4 4h1a2 2 0 0 1 2 2v5h-2m-4 0h-6m-6 -6h15m-6 0v-5"/>',
+        "account_setup":  '<path stroke="none" d="M0 0h24v24H0z" fill="none"/><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7v-2a2 2 0 0 1 2 -2h4a2 2 0 0 1 2 2v2"/><line x1="12" y1="12" x2="12" y2="12.01"/><path d="M3 13a20 20 0 0 0 18 0"/>',
+        "settings":       '<path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z"/><circle cx="12" cy="12" r="3"/>',
+        "sync":           '<path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/>',
+        "admin":          '<path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M12 17.75l-6.172 3.245l1.179 -6.873l-5 -4.867l6.9 -1l3.086 -6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873z"/>',
+        "logout":         '<path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M14 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2"/><path d="M7 12h14l-3 -3m0 6l3 -3"/>',
+    }
+
+    @staticmethod
+    def _sb_icon(key, color="#1E293B", size=18):
+        paths = App._SB_ICON_PATHS.get(key, "")
+        svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
+               f'viewBox="0 0 24 24" fill="none" stroke="{color}" '
+               f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{paths}</svg>')
+        renderer = QSvgRenderer(svg.encode())
+        px = QPixmap(size, size)
+        px.fill(Qt.GlobalColor.transparent)
+        p = QPainter(px); renderer.render(p); p.end()
+        return QIcon(px)
+
     def _make_sidebar(self):
-        NAV   = f"""QPushButton {{
-            color:rgba(255,255,255,.6); background:transparent;
-            border:none; border-left:3px solid transparent;
-            text-align:left; padding:7px 13px; font-size:10pt;
+        # -- Sidebar color tokens -----------------------------------------
+        _SB_BG      = "#FFFFFF"
+        _SB_HDR_BG  = "#F8FAFC"
+        _SB_BORDER  = "#E2E8F0"
+        _SB_TEXT    = "#1E293B"
+        _SB_MUTED   = "#64748B"
+        _SB_SEC     = "#94A3B8"
+        _SB_HOV_BG  = "#F1F5F9"
+        _SB_ACT_BG  = "#EFF6FF"
+        _SB_ACT_TXT = "#1D4ED8"
+        _SB_ACT_LN  = "#2563EB"
+
+        NAV = f"""QPushButton {{
+            color:{_SB_TEXT}; background:transparent; border:none;
+            border-left:3px solid transparent;
+            text-align:left; padding:8px 14px 8px 12px;
+            font-size:11pt; font-weight:600;
         }}
-        QPushButton:hover {{ color:rgba(255,255,255,.9); background:rgba(255,255,255,.07); }}"""
-        ACTIVE= f"""QPushButton {{
-            color:white; background:rgba(255,255,255,.12);
-            border:none; border-left:3px solid #4A90D9;
-            text-align:left; padding:7px 10px; font-size:10pt; font-weight:700;
+        QPushButton:hover {{
+            background:{_SB_HOV_BG}; color:{_SB_TEXT};
+            border-left:3px solid {_SB_BORDER};
+        }}"""
+        ACTIVE = f"""QPushButton {{
+            color:{_SB_ACT_TXT}; background:{_SB_ACT_BG};
+            border:none; border-left:3px solid {_SB_ACT_LN};
+            text-align:left; padding:8px 14px 8px 12px;
+            font-size:11pt; font-weight:700;
         }}"""
         self._SB_NAV_STYLE    = NAV
         self._SB_ACTIVE_STYLE = ACTIVE
 
-        sb = QWidget(); sb.setObjectName("sidebar"); sb.setFixedWidth(172)
-        sb.setStyleSheet(f"QWidget#sidebar {{ background:{CLR_NAVY}; }}")
+        sb = QWidget(); sb.setObjectName("sidebar"); sb.setFixedWidth(210)
+        sb.setStyleSheet(
+            f"QWidget#sidebar {{ background:{_SB_BG}; border-right:1px solid {_SB_BORDER}; }}")
         lay = QVBoxLayout(sb); lay.setContentsMargins(0,0,0,0); lay.setSpacing(0)
 
-        # Business header
+        # -- Business header ----------------------------------------------
         hdr = QWidget()
-        hdr.setStyleSheet(f"border-bottom:1px solid rgba(255,255,255,.1); background:{CLR_NAVY};")
-        hh = QHBoxLayout(hdr); hh.setContentsMargins(10,10,10,10); hh.setSpacing(8)
+        hdr.setStyleSheet(
+            f"background:{_SB_HDR_BG}; border-bottom:1px solid {_SB_BORDER};")
+        hh = QHBoxLayout(hdr); hh.setContentsMargins(12,12,12,12); hh.setSpacing(10)
         self._sb_logo_lbl = QLabel()
-        self._sb_logo_lbl.setFixedSize(34,34)
+        self._sb_logo_lbl.setFixedSize(36,36)
         self._sb_logo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._sb_logo_lbl.setStyleSheet(
-            "background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.2);"
-            "border-radius:7px;color:white;font-size:12pt;")
-        self._sb_logo_lbl.setText("✦")
+            f"background:{CLR_BLUE};border-radius:8px;color:white;"
+            f"font-size:14pt;font-weight:700;")
+        biz_name_now = self._get_display_company_name()
+        self._sb_logo_lbl.setText(biz_name_now[0].upper() if biz_name_now else "B")
         hh.addWidget(self._sb_logo_lbl)
-        nc = QVBoxLayout(); nc.setSpacing(1)
-        self._sb_biz_name = QLabel(self._get_display_company_name())
-        self._sb_biz_name.setStyleSheet("color:white;font-weight:700;font-size:10pt;background:transparent;")
+        nc = QVBoxLayout(); nc.setSpacing(2)
+        self._sb_biz_name = QLabel(biz_name_now)
+        self._sb_biz_name.setStyleSheet(
+            f"color:{_SB_TEXT};font-weight:700;font-size:10pt;background:transparent;border:none;")
+        nc.addWidget(self._sb_biz_name)
         biz0 = get_business_settings(self.db)
-        sub0 = biz0.get("address_line2","").strip() or biz0.get("address_line1","").strip() or ""
-        sub0 = re.sub(r'\s+\d{5}(-\d{4})?\s*$', '', sub0).strip()
-        self._sb_biz_sub  = QLabel(sub0)
-        self._sb_biz_sub.setStyleSheet("color:rgba(255,255,255,.4);font-size:8pt;background:transparent;")
-        nc.addWidget(self._sb_biz_name); nc.addWidget(self._sb_biz_sub)
-        hh.addLayout(nc); lay.addWidget(hdr)
+        def _detail_lbl(txt):
+            if not txt: return
+            l = QLabel(txt); l.setWordWrap(True)
+            l.setStyleSheet(f"color:{_SB_MUTED};font-size:8pt;background:transparent;border:none;")
+            nc.addWidget(l)
+        addr1 = biz0.get("address_line1","").strip()
+        addr2 = biz0.get("address_line2","").strip()
+        if addr1: _detail_lbl(addr1)
+        if addr2: _detail_lbl(addr2)
+        phone0 = biz0.get("phone","").strip()
+        if phone0: _detail_lbl(phone0)
+        ard0 = biz0.get("ard","").strip()
+        if ard0: _detail_lbl(f"ARD# {ard0}")
+        hh.addLayout(nc, 1); lay.addWidget(hdr)
 
         def ns(text):
             lbl = QLabel(text)
             lbl.setStyleSheet(
-                f"color:rgba(255,255,255,.3);font-size:8pt;letter-spacing:2px;"
-                f"padding:6px 13px 2px;background:{CLR_NAVY};")
+                f"color:{_SB_SEC};font-size:7.5pt;font-weight:600;letter-spacing:1.5px;"
+                f"padding:14px 14px 3px;background:transparent;")
             lay.addWidget(lbl)
 
         def nb(key, text, cb):
-            b = QPushButton(text); b.setFlat(True); b.setStyleSheet(NAV)
+            b = QPushButton(f"   {text}"); b.setFlat(True); b.setStyleSheet(NAV)
+            b.setIcon(self._sb_icon(key)); b.setIconSize(QSize(18, 18))
             b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
             b.clicked.connect(cb); lay.addWidget(b)
             self._sb_btns[key] = b
 
         ns("WORKSPACE")
-        nb("doc_list",       "  Documents",   lambda: self.show_screen("doc_list"))
-        nb("customers",      "  Customers",   lambda: self.show_screen("customers"))
+        nb("doc_list",       "Documents",    lambda: self.show_screen("doc_list"))
+        nb("customers",      "Customers",    lambda: self.show_screen("customers"))
         ns("MANAGE")
-        nb("estimate_entry", "  New invoice", self._new_estimate_action)
-        nb("reports",        "  Reports",     lambda: self.show_screen("reports"))
-        nb("vehicles_due",   "  Vehicles Due",lambda: self.show_screen("vehicles_due"))
-        nb("account_setup",  "  Accounts",   lambda: self.show_screen("account_setup"))
+        nb("estimate_entry", "New Invoice",  self._new_estimate_action)
+        nb("reports",        "Reports",      lambda: self.show_screen("reports"))
+        nb("vehicles_due",   "Vehicles Due", lambda: self.show_screen("vehicles_due"))
+        nb("account_setup",  "Accounts",     lambda: self.show_screen("account_setup"))
         lay.addStretch()
 
         sep = QWidget(); sep.setFixedHeight(1)
-        sep.setStyleSheet(f"background:rgba(255,255,255,.1);"); lay.addWidget(sep)
-        nb("settings", "  Settings", lambda: self.show_screen("settings"))
+        sep.setStyleSheet(f"background:{_SB_BORDER};"); lay.addWidget(sep)
+        nb("settings", "Settings", lambda: self.show_screen("settings"))
 
-        # Sync button with status dot
-        sync_b = QPushButton("  Sync"); sync_b.setFlat(True); sync_b.setStyleSheet(NAV)
+        # Sync button (force re-pull)
+        sync_b = QPushButton("   Sync"); sync_b.setFlat(True); sync_b.setStyleSheet(NAV)
+        sync_b.setIcon(self._sb_icon("sync")); sync_b.setIconSize(QSize(18, 18))
         sync_b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        sync_b.clicked.connect(self._manual_sync_now); lay.addWidget(sync_b)
+        def _sb_force_sync():
+            threading.Thread(
+                target=SYNC.force_pull_from_zero,
+                kwargs={"notify_cb": lambda msg: self._fp_signal.emit(msg)},
+                daemon=True
+            ).start()
+        sync_b.clicked.connect(_sb_force_sync); lay.addWidget(sync_b)
 
         if self._is_master:
-            nb("admin", "  Admin", lambda: self.show_screen("admin"))
+            nb("admin", "Admin", lambda: self.show_screen("admin"))
 
-        # Zoom controls in sidebar bottom
-        zoom_w = QWidget(); zoom_w.setStyleSheet(f"background:{CLR_NAVY};")
-        zh = QHBoxLayout(zoom_w); zh.setContentsMargins(10,4,10,4); zh.setSpacing(4)
-        zs = "background:rgba(255,255,255,.15);color:white;border:none;border-radius:3px;padding:2px 6px;font-size:9pt;font-weight:bold;"
-        zm_o = QPushButton("A-"); zm_o.setStyleSheet(zs); zm_o.setFixedWidth(30); zm_o.clicked.connect(self._zoom_out)
-        zm_i = QPushButton("A+"); zm_i.setStyleSheet(zs); zm_i.setFixedWidth(30); zm_i.clicked.connect(self._zoom_in)
+        # Zoom controls
+        zoom_w = QWidget(); zoom_w.setStyleSheet(f"background:{_SB_BG};")
+        zh = QHBoxLayout(zoom_w); zh.setContentsMargins(12,4,12,6); zh.setSpacing(6)
+        zs = (f"background:{_SB_HOV_BG};color:{_SB_TEXT};border:1px solid {_SB_BORDER};"
+              f"border-radius:4px;padding:2px 6px;font-size:9pt;font-weight:600;")
+        zm_o = QPushButton("A-"); zm_o.setStyleSheet(zs); zm_o.setFixedWidth(32)
+        zm_o.clicked.connect(self._zoom_out)
+        zm_i = QPushButton("A+"); zm_i.setStyleSheet(zs); zm_i.setFixedWidth(32)
+        zm_i.clicked.connect(self._zoom_in)
         zh.addWidget(zm_o); zh.addWidget(zm_i); zh.addStretch()
         lay.addWidget(zoom_w)
 
         # Logout
-        lo = QPushButton("  Logout"); lo.setFlat(True)
-        lo.setStyleSheet(NAV.replace("rgba(255,255,255,.6)","rgba(255,120,120,.85)"))
+        LO_NAV = f"""QPushButton {{
+            color:#DC2626; background:transparent; border:none;
+            border-left:3px solid transparent;
+            text-align:left; padding:8px 14px 8px 12px;
+            font-size:11pt; font-weight:600;
+        }}
+        QPushButton:hover {{
+            background:#FEF2F2; color:#DC2626;
+            border-left:3px solid #FCA5A5;
+        }}"""
+        lo = QPushButton("   Logout"); lo.setFlat(True)
+        lo.setIcon(self._sb_icon("logout", color="#DC2626")); lo.setIconSize(QSize(18, 18))
+        lo.setStyleSheet(LO_NAV)
         lo.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         lo.clicked.connect(self._do_logout); lay.addWidget(lo)
 
@@ -2599,7 +2677,7 @@ class App(QMainWindow):
                 self._ee_body_w.adjustSize()
                 self._ee_scene.setSceneRect(QRectF(0, 0, new_w, self._ee_body_w.height()))
 
-    # â"€â"€ Column width persistence â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    # â"â‚¬â"â‚¬ Column width persistence â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
     def _register_table(self, key, table):
         """Load saved column widths and connect resize signal for auto-save."""
         try:
@@ -2618,12 +2696,12 @@ class App(QMainWindow):
         try: set_setting(self.db, f"col_widths_{key}", json.dumps(widths))
         except Exception: pass
 
-    # â"€â"€ Sync helpers â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    # â"â‚¬â"â‚¬ Sync helpers â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
     def _on_sync_change(self):
         t = SYNC._last_pull_time
         since = t.strftime("%I:%M %p") if t else "never"
         cnt = SYNC._last_pull_count
-        self._sync_label.setText(f"● Synced {since} (+{cnt})")
+        self._sync_label.setText(f"* Synced {since} (+{cnt})")
         self._refresh_sidebar_name()
         if self._current_screen == "doc_list":
             self.refresh_doc_list()
@@ -2631,7 +2709,10 @@ class App(QMainWindow):
             self._refresh_acct_id_dropdown()
 
     def _on_force_pull_done(self, msg):
-        QMessageBox.information(self, "Force Re-pull", msg)
+        # Ignore intermediate "Syncing..." progress messages — only show the final result
+        if msg.startswith("Syncing"):
+            return
+        QMessageBox.information(self, "Sync Complete", msg)
 
     def _update_sync_status(self):
         t = SYNC._last_pull_time
@@ -2658,17 +2739,17 @@ class App(QMainWindow):
         self._sub_status = {"status":"locked","can_create":False,"warning":msg}
         QMessageBox.critical(self,"Account Suspended",f"{msg}\n\nYou are now in read-only mode.")
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
     #  SCREEN: DOCUMENT LIST
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
     def _build_doc_list_screen(self):
         w = QWidget(); self._screens["doc_list"] = w
         lay = QVBoxLayout(w); lay.setContentsMargins(0,0,0,0); lay.setSpacing(0)
         self._stack.addWidget(w)
 
-        # ── Page header: title + search + buttons ────────────────────────
-        hdr = QWidget(); hdr.setStyleSheet(f"background:{CLR_CARD};border-bottom:1px solid {CLR_BORDER};")
+        # -- Page header: title + search + buttons ------------------------
+        hdr = QWidget(); hdr.setStyleSheet(f"background:{CLR_SURFACE};border-bottom:1px solid {CLR_BORDER};")
         hdr_h = QHBoxLayout(hdr); hdr_h.setContentsMargins(20,10,16,10); hdr_h.setSpacing(12)
         _ttl = QLabel("Documents")
         _ttl.setStyleSheet(f"color:{CLR_TEXT};font-size:14pt;font-weight:700;background:transparent;")
@@ -2700,7 +2781,7 @@ class App(QMainWindow):
         hdr_h.addWidget(_new_b)
         lay.addWidget(hdr)
 
-        # ── Filter pills ─────────────────────────────────────────────────
+        # -- Filter pills -------------------------------------------------
         pills_bar = QWidget()
         pills_bar.setStyleSheet(f"background:{CLR_SURFACE};border-bottom:1px solid {CLR_BORDER};")
         pills_h = QHBoxLayout(pills_bar); pills_h.setContentsMargins(20,6,16,6); pills_h.setSpacing(6)
@@ -2723,7 +2804,7 @@ class App(QMainWindow):
             pills_h.addWidget(b)
         lay.addWidget(pills_bar)
 
-        # ── Table ─────────────────────────────────────────────────────────
+        # -- Table ---------------------------------------------------------
         cols = ["Date","Plate","Customer","VIN","Year / Make","Amount","Status"]
         self._dl_table = QTableWidget(0, len(cols)); self._dl_table.setHorizontalHeaderLabels(cols)
         hh = self._dl_table.horizontalHeader()
@@ -2852,7 +2933,7 @@ class App(QMainWindow):
             self._dl_inv_ids.append(row["invoice_id"])
             is_today = (row["invoice_date"] == today)
             amt_cents = row["amount_cents"] or 0
-            amt_str = f"${amt_cents/100:.2f}" if amt_cents else "—"
+            amt_str = f"${amt_cents/100:.2f}" if amt_cents else "-"
             values   = [date_str, plate, cname, vin, ymk, amt_str, status]
             _zsz = self._zoom.get(self._current_screen, 10)
             for col, val in enumerate(values):
@@ -2992,16 +3073,16 @@ class App(QMainWindow):
             QMessageBox.critical(self,"Error","Could not generate PDF."); return
         dlg = PdfViewerDialog(pdf, ps, self); dlg.exec()
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
     #  SCREEN: INVOICE / ESTIMATE ENTRY
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
     def _build_estimate_entry_screen(self):
         outer = QWidget(); self._screens["estimate_entry"] = outer
         outer_lay = QVBoxLayout(outer); outer_lay.setContentsMargins(0,0,0,0); outer_lay.setSpacing(0)
         self._stack.addWidget(outer)
 
-        # ── GHOST WIDGET: hidden fields kept for save/load/clear compatibility ──
+        # -- GHOST WIDGET: hidden fields kept for save/load/clear compatibility --
         _ghost = QWidget(); _ghost.setVisible(False)
         _gl = QVBoxLayout(_ghost); _gl.setContentsMargins(0,0,0,0)
         self._ee_type_lbl = QLabel("NEW ESTIMATE"); _gl.addWidget(self._ee_type_lbl)
@@ -3033,23 +3114,35 @@ class App(QMainWindow):
         self._f_acct_id.currentTextChanged.connect(self._acct_id_changed)
         outer_lay.addWidget(_ghost)
 
-        # ── PAGE HEADER ──
+        # -- PAGE HEADER --
         ee_hdr = QWidget()
         ee_hdr.setStyleSheet(f"background:{CLR_SURFACE};border-bottom:1px solid {CLR_BORDER};")
         ee_hdr_h = QHBoxLayout(ee_hdr); ee_hdr_h.setContentsMargins(20,10,20,10)
         self._ee_hdr_lbl = QLabel("New Invoice")
         self._ee_hdr_lbl.setStyleSheet(
-            f"font-size:15pt;font-weight:700;color:{CLR_TEXT};background:transparent;")
-        _cancel_b = QPushButton("✕  Cancel")
+            f"font-size:15pt;font-weight:700;color:{CLR_TEXT};background:transparent;border:none;")
+        self._btn_scan_reg = QPushButton("Scan Registration")
+        self._btn_scan_reg.setStyleSheet(
+            f"QPushButton{{background:{CLR_BLUE};color:white;border:none;"
+            f"border-radius:7px;padding:8px 22px;font-size:12pt;font-weight:700;}}"
+            f"QPushButton:hover{{background:{CLR_NAVY};}}")
+        self._btn_scan_reg.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._btn_scan_reg.clicked.connect(
+            lambda: (self._f_plate.setFocus(), self._f_plate.selectAll()))
+        _cancel_b = QPushButton("X  Cancel")
         _cancel_b.setStyleSheet(
             f"QPushButton{{background:transparent;color:{CLR_TEXT};"
             f"border:1px solid {CLR_BORDER};border-radius:6px;padding:4px 14px;font-size:10pt;}}"
             f"QPushButton:hover{{background:{CLR_BFAINT};}}")
         _cancel_b.clicked.connect(lambda: (self._clear_form(), self.show_screen("doc_list")))
-        ee_hdr_h.addWidget(self._ee_hdr_lbl); ee_hdr_h.addStretch(); ee_hdr_h.addWidget(_cancel_b)
+        ee_hdr_h.addWidget(self._ee_hdr_lbl)
+        ee_hdr_h.addSpacing(16)
+        ee_hdr_h.addWidget(self._btn_scan_reg)
+        ee_hdr_h.addStretch()
+        ee_hdr_h.addWidget(_cancel_b)
         outer_lay.addWidget(ee_hdr)
 
-        # ── CARD HELPERS ──
+        # -- CARD HELPERS --
         _inp = (f"QLineEdit{{border:1px solid {CLR_BORDER};border-radius:4px;"
                 f"padding:5px 8px;background:{CLR_CARD};color:{CLR_TEXT};font-size:10pt;}}"
                 f"QLineEdit:focus{{border-color:{CLR_BLUE};}}")
@@ -3090,7 +3183,7 @@ class App(QMainWindow):
             vl.addWidget(body, 1)
             return c, bl, chh
 
-        # ── ZOOMABLE GRAPHICS VIEW + GRID ──
+        # -- ZOOMABLE GRAPHICS VIEW + GRID --
         self._ee_view = QGraphicsView()
         self._ee_view.setStyleSheet("QGraphicsView{border:none;background:#E6EDF7;}")
         self._ee_view.viewport().setStyleSheet("background:#E6EDF7;")
@@ -3118,8 +3211,8 @@ class App(QMainWindow):
         self._ee_view.resizeEvent = _ee_resize
         outer_lay.addWidget(self._ee_view, 1)
 
-        # ── CUSTOMER CARD ──
-        cust_c, cust_bl, _ = _card(">>", "Customer")
+        # -- CUSTOMER CARD --
+        cust_c, cust_bl, _ = _card("", "Customer")
         self._f_first   = QLineEdit(); _upper_entry(self._f_first);   self._f_first.setPlaceholderText("First name")
         self._f_last    = QLineEdit(); _upper_entry(self._f_last);    self._f_last.setPlaceholderText("Last name")
         self._f_company = QLineEdit(); _upper_entry(self._f_company); self._f_company.setPlaceholderText("Company name")
@@ -3158,8 +3251,8 @@ class App(QMainWindow):
         # initialise pass/fail button styles (buttons live in ghost widget)
         self._ee_toggle_result("", init=True)
 
-        # ── ACCOUNT / CUSTOMER SELECTOR CARD ──
-        acct_c, acct_bl, _ = _card("🏢", "Account / Customer")
+        # -- ACCOUNT / CUSTOMER SELECTOR CARD --
+        acct_c, acct_bl, _ = _card("", "Account / Customer")
         self._acct_cust_cmb = QComboBox()
         self._acct_cust_cmb.setStyleSheet(
             f"QComboBox{{background:#F8FAFD;border:1px solid #B8CCE8;"
@@ -3191,8 +3284,8 @@ class App(QMainWindow):
         acct_bl.addStretch()
         grid.addWidget(acct_c, 0, 1)
 
-        # ── VEHICLE CARD ──
-        veh_c, veh_bl, _ = _card(">>", "Vehicle")
+        # -- VEHICLE CARD --
+        veh_c, veh_bl, _ = _card("", "Vehicle")
         # Row 1: Plate | Test date
         self._f_plate = QLineEdit(); _upper_entry(self._f_plate)
         self._f_plate.setPlaceholderText("License plate")
@@ -3292,9 +3385,11 @@ class App(QMainWindow):
         veh_bl.addWidget(add_to_inv_btn); veh_bl.addStretch()
         self._f_vin.editingFinished.connect(self._vin_lookup)
         self._f_plate.editingFinished.connect(self._plate_lookup)
+        self._f_plate.textChanged.connect(self._on_plate_text_changed)
+        self._f_vin.textChanged.connect(self._on_vin_text_changed)
         grid.addWidget(veh_c, 0, 0)
 
-        # ── BILLING CARD ──
+        # -- BILLING CARD --
         bill_c, bill_bl, _ = _card("$", "Billing")
 
         self._disc_info_lbl = QLabel("")
@@ -3308,8 +3403,8 @@ class App(QMainWindow):
         pay_sep = QWidget(); pay_sep.setFixedHeight(1)
         pay_sep.setStyleSheet(f"background:{CLR_BORDER};")
         self._f_pay = _UpComboBox()
-        self._f_pay.addItems(["","CASH","VISA","MASTERCARD","DISCOVER","AMEX","CHECK","CHARGE"])
         self._f_pay.currentTextChanged.connect(self._payment_changed)
+        self._refresh_pay_combo()
         pay_row = QHBoxLayout(); pay_row.setSpacing(8)
         pay_row.addWidget(_lbl("Payment")); pay_row.addWidget(self._f_pay, 1)
         bill_bl.addWidget(pay_sep)
@@ -3330,7 +3425,7 @@ class App(QMainWindow):
         bill_bl.addWidget(tot_sep); bill_bl.addWidget(tot_footer)
         grid.addWidget(bill_c, 1, 1)
 
-        # ── BOTTOM ACTION BAR ──
+        # -- BOTTOM ACTION BAR --
         bb = QWidget()
         bb.setStyleSheet(f"background:{CLR_CARD};border-top:1px solid {CLR_BORDER};")
         bb_h = QHBoxLayout(bb); bb_h.setContentsMargins(16,8,16,8); bb_h.setSpacing(8)
@@ -3342,7 +3437,7 @@ class App(QMainWindow):
             f"QPushButton:hover{{background:{CLR_BFAINT};}}")
         self._ee_clear_btn.clicked.connect(self._clear_form)
 
-        auto_b = QPushButton("Auto-prints via  printer settings  ▾")
+        auto_b = QPushButton("Auto-prints via  printer settings  v")
         auto_b.setStyleSheet(
             f"QPushButton{{background:transparent;color:{CLR_TMUTED};"
             f"border:none;font-size:9pt;padding:6px 4px;}}"
@@ -3458,7 +3553,7 @@ class App(QMainWindow):
             pl.setStyleSheet(f"color:{CLR_TEXT};font-size:10pt;background:transparent;")
             can_remove = self._editing_is_estimate or self._editing_id is None
             if can_remove:
-                rm = QPushButton("✕ Remove"); rm.setFixedHeight(22)
+                rm = QPushButton("X Remove"); rm.setFixedHeight(22)
                 rm.setStyleSheet(
                     f"QPushButton{{background:transparent;color:{CLR_TSUB};border:1px solid {CLR_BORDER};"
                     f"border-radius:4px;padding:1px 7px;font-size:8pt;}}"
@@ -3498,7 +3593,7 @@ class App(QMainWindow):
         if can_edit:
             act_remove = menu.addAction("Remove Line")
         else:
-            act_locked = menu.addAction("Invoice finalized — no changes allowed")
+            act_locked = menu.addAction("Invoice finalized - no changes allowed")
             act_locked.setEnabled(False)
         from PyQt6.QtGui import QCursor
         chosen = menu.exec(QCursor.pos())
@@ -3534,7 +3629,8 @@ class App(QMainWindow):
                 if full: self._f_company.setText(full)
         else:
             self._clear_form()
-            self._set_page_title("New Invoice")
+            self._set_page_title("")
+            QTimer.singleShot(50, lambda: (self._f_plate.setFocus(), self._f_plate.selectAll()))
 
     def _refresh_acct_id_dropdown(self):
         names = [r[0] for r in self.db.execute("SELECT company_name FROM accounts ORDER BY company_name").fetchall()]
@@ -3573,10 +3669,10 @@ class App(QMainWindow):
         self._cust_discount_type = raw_type if raw_type in ("LINE","TOTAL","FLAT_LINE","FLAT_TOTAL") else "LINE"
         if hasattr(self, '_disc_info_lbl'):
             if self._cust_discount_pct:
-                _lbl = {"LINE":f"{self._cust_discount_pct:.0f}% off each line — applied automatically",
-                        "TOTAL":f"{self._cust_discount_pct:.0f}% off total — applied at save",
-                        "FLAT_LINE":f"${self._cust_discount_pct:.2f} off each line — applied automatically",
-                        "FLAT_TOTAL":f"${self._cust_discount_pct:.2f} off total — applied at save"}
+                _lbl = {"LINE":f"{self._cust_discount_pct:.0f}% off each line - applied automatically",
+                        "TOTAL":f"{self._cust_discount_pct:.0f}% off total - applied at save",
+                        "FLAT_LINE":f"${self._cust_discount_pct:.2f} off each line - applied automatically",
+                        "FLAT_TOTAL":f"${self._cust_discount_pct:.2f} off total - applied at save"}
                 self._disc_info_lbl.setText(f"Customer discount: {_lbl.get(self._cust_discount_type, '')}")
             else:
                 self._disc_info_lbl.setText("")
@@ -3634,11 +3730,11 @@ class App(QMainWindow):
         si(self._f_zip,     cust["zip"])
         self._apply_cust_discount(cust)
 
-    # ── Account Customer Selector helpers ────────────────────────────────
+    # -- Account Customer Selector helpers --------------------------------
     def _refresh_acct_cust_dropdown(self):
         if not hasattr(self, '_acct_cust_cmb'): return
         rows = self.db.execute("SELECT * FROM accounts ORDER BY company_name").fetchall()
-        self._acct_cust_key_map = {}  # display_name → company_name key
+        self._acct_cust_key_map = {}  # display_name â†’ company_name key
         cur_key = getattr(self, '_acct_cust_cur_key', '')
         self._acct_cust_cmb.blockSignals(True)
         self._acct_cust_cmb.clear()
@@ -3662,7 +3758,7 @@ class App(QMainWindow):
             self._acct_veh_no_lbl.show()
             self._acct_cust_cur_key = ''
             return
-        # Resolve display name → internal company_name key via combo data
+        # Resolve display name â†’ internal company_name key via combo data
         key = None
         for i in range(self._acct_cust_cmb.count()):
             if self._acct_cust_cmb.itemText(i) == display_name:
@@ -3736,7 +3832,7 @@ class App(QMainWindow):
             truck = (v["truck_number"] if "truck_number" in v.keys() else "") or ""
             ymm   = " ".join(filter(None,[v["year"] or "", v["make"] or "", v["model"] or ""]))
             due   = v["next_test_due"] or ""
-            for col, val in enumerate([plate, vin, truck or "—", ymm, due or "—"]):
+            for col, val in enumerate([plate, vin, truck or "-", ymm, due or "-"]):
                 tbl.setItem(r, col, QTableWidgetItem(val))
             if due:
                 if due < today:   clr = QColor("#FFE8E8")
@@ -3819,7 +3915,7 @@ class App(QMainWindow):
                 _fill_from_vrow(vrow)
                 status_lbl.setText("Vehicle found in records.")
             else:
-                status_lbl.setText("No existing record — fill in details below.")
+                status_lbl.setText("No existing record - fill in details below.")
 
         def _on_vin_done():
             vin = f_vin.text().strip().upper()
@@ -3845,7 +3941,7 @@ class App(QMainWindow):
                     if yr and not f_year.text():  f_year.setText(yr)
                     if mk and not f_make.text():  f_make.setText(mk)
                     if md and not f_model.text(): f_model.setText(md)
-                    status_lbl.setText("VIN decoded." if yr else "VIN not found — enter details manually.")
+                    status_lbl.setText("VIN decoded." if yr else "VIN not found - enter details manually.")
                 self._acct_veh_vin_worker.done.connect(_api_done)
                 self._acct_veh_vin_worker.start()
 
@@ -3897,7 +3993,53 @@ class App(QMainWindow):
             self._f_truck.setText((v["truck_number"] if "truck_number" in v.keys() else "") or "")
         self._prefill_test_interval(v)
 
-    # ─────────────────────────────────────────────────────────────────────
+    # ---------------------------------------------------------------------
+
+    @staticmethod
+    def _parse_reg_barcode(text):
+        """Parse CA/standard registration Code 39 barcode: %0{VIN17}[A]{PLATE}I
+        Returns dict with 'vin' and 'plate', or None if not a recognized barcode."""
+        t = text.strip().upper()
+        if not t.startswith('%0'):
+            return None
+        inner = t[2:]
+        # Strip trailing 'I' end-sentinel (Code 39)
+        if inner.endswith('I'):
+            inner = inner[:-1]
+        if len(inner) < 17:
+            return None
+        vin = inner[:17]
+        rest = inner[17:]
+        # Strip optional 'A' separator between VIN and plate
+        if rest.startswith('A'):
+            rest = rest[1:]
+        plate = rest.strip()
+        return {'vin': vin, 'plate': plate}
+
+    def _apply_reg_barcode(self, text):
+        """If text looks like a registration barcode, parse it and fill VIN + plate fields."""
+        parsed = self._parse_reg_barcode(text)
+        if not parsed:
+            return False
+        vin = parsed['vin']; plate = parsed['plate']
+        # Block textChanged signals while we repopulate
+        self._f_plate.blockSignals(True); self._f_vin.blockSignals(True)
+        self._f_plate.clear(); self._f_vin.clear()
+        self._f_plate.blockSignals(False); self._f_vin.blockSignals(False)
+        if plate: self._f_plate.setText(plate)
+        if vin:   self._f_vin.setText(vin)
+        # Trigger lookups
+        if vin:   self._vin_lookup()
+        if plate: self._plate_lookup()
+        return True
+
+    def _on_plate_text_changed(self, text):
+        if text.startswith('%0') and len(text) > 20:
+            self._apply_reg_barcode(text)
+
+    def _on_vin_text_changed(self, text):
+        if text.startswith('%0') and len(text) > 20:
+            self._apply_reg_barcode(text)
 
     def _vin_lookup(self):
         vin = self._f_vin.text().strip().upper()
@@ -4134,7 +4276,7 @@ class App(QMainWindow):
             act_remove = menu.addAction("Remove Line")
             act_edit   = menu.addAction("Edit Line (load back)")
         else:
-            act_locked = menu.addAction("Invoice finalized — no changes allowed")
+            act_locked = menu.addAction("Invoice finalized - no changes allowed")
             act_locked.setEnabled(False)
         chosen = menu.exec(self._lines_table.viewport().mapToGlobal(pos))
         if not can_edit: return
@@ -4394,7 +4536,7 @@ class App(QMainWindow):
                 charge_acct_co = acct_key
             else:
                 raw = (fd["acct_id"] or fd["company"] or f"{fd['first']} {fd['last']}".strip()).upper()
-                # Resolve to actual account key — handles individual accounts stored as __INDV_xxx
+                # Resolve to actual account key - handles individual accounts stored as __INDV_xxx
                 _found = self.db.execute("SELECT company_name FROM accounts WHERE UPPER(company_name)=UPPER(?)",(raw,)).fetchone()
                 if not _found:
                     _parts = raw.split(None, 1)
@@ -4594,9 +4736,9 @@ class App(QMainWindow):
         self.show_screen("doc_list")
         QTimer.singleShot(4000, lambda: self._on_show_doc_list() if self._current_screen == "doc_list" else None)
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
     #  SCREEN: ACCOUNTS / AR
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
     def _build_account_setup_screen(self):
         w = QWidget(); self._screens["account_setup"] = w
@@ -4604,13 +4746,37 @@ class App(QMainWindow):
         self._stack.addWidget(w)
 
         # Toolbar
-        tb = QWidget(); tb.setStyleSheet(f"background:{CLR_CARD};border-bottom:1px solid {CLR_BORDER};")
-        tb_h = QHBoxLayout(tb); tb_h.setContentsMargins(10,6,10,6); tb_h.setSpacing(8)
-        tb_h.addWidget(QLabel("Account:"))
-        self._acct_combo = QComboBox(); self._acct_combo.setMinimumWidth(200)
-        self._acct_combo.currentIndexChanged.connect(self._acct_selected_by_index); tb_h.addWidget(self._acct_combo)
-        for sym, cb in [("<<",self._acct_first),("<",self._acct_prev),(">",self._acct_next),(">>",self._acct_last)]:
-            b = btn(sym,"secondary"); b.setFixedWidth(30); b.clicked.connect(cb); tb_h.addWidget(b)
+        tb = QWidget(); tb.setStyleSheet(f"background:{CLR_SURFACE};border-bottom:1px solid {CLR_BORDER};")
+        tb_h = QHBoxLayout(tb); tb_h.setContentsMargins(16,8,16,8); tb_h.setSpacing(8)
+        _acct_ttl = QLabel("Accounts")
+        _acct_ttl.setStyleSheet(f"color:{CLR_TEXT};font-size:14pt;font-weight:700;background:transparent;border:none;")
+        tb_h.addWidget(_acct_ttl); tb_h.addSpacing(16)
+        _nav_btn_ss = (
+            f"QPushButton{{background:{CLR_CARD};color:{CLR_BLUE};border:1px solid {CLR_BORDER};"
+            f"border-radius:6px;padding:4px 10px;font-size:12pt;font-weight:700;}}"
+            f"QPushButton:hover{{background:{CLR_BFAINT};border-color:{CLR_BLUE};}}"
+            f"QPushButton:disabled{{color:{CLR_BORDER};background:{CLR_SURFACE};}}"
+        )
+        _prev_b = QPushButton("‹"); _prev_b.setFixedSize(32,32)
+        _prev_b.setStyleSheet(_nav_btn_ss); _prev_b.clicked.connect(self._acct_prev)
+        _next_b = QPushButton("›"); _next_b.setFixedSize(32,32)
+        _next_b.setStyleSheet(_nav_btn_ss); _next_b.clicked.connect(self._acct_next)
+        self._acct_combo = QComboBox()
+        self._acct_combo.setEditable(True)
+        self._acct_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._acct_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+        self._acct_combo.completer().setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._acct_combo.setMinimumWidth(240)
+        self._acct_combo.setStyleSheet(
+            f"QComboBox{{border:1px solid {CLR_BORDER};border-radius:6px;padding:4px 10px;"
+            f"background:{CLR_CARD};font-size:10pt;color:{CLR_TEXT};}}"
+            f"QComboBox:focus{{border-color:{CLR_BLUE};}}"
+            f"QComboBox::drop-down{{border:none;width:20px;}}"
+        )
+        self._acct_combo.currentIndexChanged.connect(self._acct_selected_by_index)
+        tb_h.addWidget(_prev_b)
+        tb_h.addWidget(self._acct_combo)
+        tb_h.addWidget(_next_b)
         tb_h.addSpacing(12)
         new_b = btn("NEW ACCOUNT","success"); new_b.clicked.connect(self._new_acct_dialog); tb_h.addWidget(new_b)
         edit_b = btn("EDIT ACCOUNT","primary"); edit_b.clicked.connect(self._edit_acct_dialog); tb_h.addWidget(edit_b)
@@ -4765,7 +4931,7 @@ class App(QMainWindow):
                 "This will remove any orphaned charges and re-sync from real invoice data.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 ) != QMessageBox.StandardButton.Yes: return
-        # Delete all charge entries for this account — payments are kept
+        # Delete all charge entries for this account - payments are kept
         self.db.execute(
             "DELETE FROM account_history WHERE UPPER(company_name)=UPPER(?) AND type='charge'",
             (company_name,))
@@ -4808,7 +4974,7 @@ class App(QMainWindow):
                 uid = uid.strip()
                 if uid: paid_ids.add(uid)
 
-        # Invoices for this account — match by company_name, account_id, or customer_id
+        # Invoices for this account - match by company_name, account_id, or customer_id
         inv_rows = self.db.execute("""
             SELECT invoice_id, invoice_number, invoice_date, amount_cents FROM invoices
             WHERE (UPPER(company_name)=UPPER(?)
@@ -4910,7 +5076,7 @@ class App(QMainWindow):
             truck = (v["truck_number"] if "truck_number" in v.keys() else "") or ""
             ymm   = " ".join(filter(None,[v["year"] or "",v["make"] or "",v["model"] or ""]))
             due   = v["next_test_due"] or ""
-            for col, val in enumerate([plate, vin, truck or "—", ymm, due or "—"]):
+            for col, val in enumerate([plate, vin, truck or "-", ymm, due or "-"]):
                 tbl.setItem(r, col, QTableWidgetItem(val))
             if due:
                 clr = QColor("#FFE8E8") if due < today else (QColor("#FFF3CD") if due <= in30 else None)
@@ -4992,7 +5158,7 @@ class App(QMainWindow):
             if vrow:
                 _fill_from_vrow(vrow); status_lbl.setText("Vehicle found in records.")
             else:
-                status_lbl.setText("No existing record — fill in details below.")
+                status_lbl.setText("No existing record - fill in details below.")
 
         def _on_vin_done():
             vin = f_vin.text().strip().upper()
@@ -5013,7 +5179,7 @@ class App(QMainWindow):
                     if yr and not f_year.text():  f_year.setText(yr)
                     if mk and not f_make.text():  f_make.setText(mk)
                     if md and not f_model.text(): f_model.setText(md)
-                    status_lbl.setText("VIN decoded." if yr else "VIN not found — enter details manually.")
+                    status_lbl.setText("VIN decoded." if yr else "VIN not found - enter details manually.")
                 self._ap_veh_vin_worker.done.connect(_api_done)
                 self._ap_veh_vin_worker.start()
 
@@ -5058,7 +5224,7 @@ class App(QMainWindow):
         if not type_item: return
         type_str = type_item.text()
 
-        # â"€â"€ Payment row: offer Delete â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        # â"â‚¬â"â‚¬ Payment row: offer Delete â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
         if type_str == "Payment":
             first_item = tbl.item(row, 0)
             meta = first_item.data(Qt.ItemDataRole.UserRole) if first_item else None
@@ -5322,7 +5488,7 @@ class App(QMainWindow):
         if co:
             name = co
         else:
-            # Individual — keep existing key if editing, else generate new one
+            # Individual - keep existing key if editing, else generate new one
             is_individual = 1
             if is_indv_existing and existing_name:
                 name = existing_name  # keep the same internal key
@@ -5410,7 +5576,7 @@ class App(QMainWindow):
         date_str = date_e.text().strip() or datetime.today().strftime("%Y-%m-%d")
         notes    = note_e.text().strip()
 
-        # â"€â"€ Build paid_ids set â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        # â"â‚¬â"â‚¬ Build paid_ids set â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
         paid_ids = set()
         for pr in self.db.execute(
                 "SELECT invoice_id FROM account_history WHERE company_name=? AND type='payment'",
@@ -5419,7 +5585,7 @@ class App(QMainWindow):
                 u = uid.strip()
                 if u: paid_ids.add(u)
 
-        # â"€â"€ Accumulate prior partial amounts per invoice UUID â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        # â"â‚¬â"â‚¬ Accumulate prior partial amounts per invoice UUID â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
         partial_applied: dict = {}   # uuid -> total dollars already partially applied
         for pr in self.db.execute(
                 "SELECT partial_json FROM account_history WHERE company_name=? AND type='payment'",
@@ -5430,7 +5596,7 @@ class App(QMainWindow):
                     partial_applied[iid] = partial_applied.get(iid, 0.0) + float(v)
             except Exception: pass
 
-        # â"€â"€ Get unpaid invoices oldest first, with effective remaining â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        # â"â‚¬â"â‚¬ Get unpaid invoices oldest first, with effective remaining â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
         unpaid = []
         for r in self.db.execute("""
             SELECT invoice_id, invoice_number, amount_cents FROM invoices
@@ -5447,7 +5613,7 @@ class App(QMainWindow):
                                "full": full_amt, "remaining": remaining,
                                "was_partial": already > 0.005})
 
-        # â"€â"€ Auto-apply algorithm â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        # â"â‚¬â"â‚¬ Auto-apply algorithm â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
         left       = amt
         fully_paid = []    # list of invoice dicts that this payment fully covers
         partial    = None  # single invoice dict with extra keys: applied, shortfall
@@ -5462,7 +5628,7 @@ class App(QMainWindow):
                 left = 0
                 break
 
-        # â"€â"€ Confirmation dialog â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        # â"â‚¬â"â‚¬ Confirmation dialog â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
         lines = [f"<b>Payment of ${amt:,.2f} - breakdown:</b><br>"]
         for inv in fully_paid:
             tag = " (completes partial)" if inv["was_partial"] else ""
@@ -5489,7 +5655,7 @@ class App(QMainWindow):
         cl.addWidget(cbb)
         if cdlg.exec() != QDialog.DialogCode.Accepted: return
 
-        # â"€â"€ Build fields for DB insert â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        # â"â‚¬â"â‚¬ Build fields for DB insert â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬â"â‚¬
         invoice_id_str = ",".join(inv["uuid"] for inv in fully_paid)
 
         new_partial_json = "{}"
@@ -5672,25 +5838,25 @@ class App(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Print Error", f"Could not generate statement:\n{e}")
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
     #  SCREEN: REPORTS
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
     def _build_vehicles_due_screen(self):
         w = QWidget(); self._screens["vehicles_due"] = w
         lay = QVBoxLayout(w); lay.setContentsMargins(14,12,14,12); lay.setSpacing(8)
         self._stack.addWidget(w)
 
-        # ── Header row ───────────────────────────────────────────────
+        # -- Header row -----------------------------------------------
         hdr_row = QHBoxLayout()
         ttl = QLabel("Vehicles Due"); ttl.setStyleSheet("font-size:15pt; font-weight:700;")
         hdr_row.addWidget(ttl)
         hdr_row.addStretch()
-        ref_b = QPushButton("⟳ Refresh"); ref_b.setObjectName("secondary")
+        ref_b = QPushButton(" Refresh"); ref_b.setObjectName("secondary")
         hdr_row.addWidget(ref_b)
         lay.addLayout(hdr_row)
 
-        # ── Filter row ───────────────────────────────────────────────
+        # -- Filter row -----------------------------------------------
         filt_row = QHBoxLayout()
         filt_row.addWidget(QLabel("Show:"))
         self._vd_cmb = QComboBox()
@@ -5702,7 +5868,7 @@ class App(QMainWindow):
         filt_row.addWidget(self._vd_summary)
         lay.addLayout(filt_row)
 
-        # ── Table ────────────────────────────────────────────────────
+        # -- Table ----------------------------------------------------
         self._vd_tbl = QTableWidget(0, 8)
         self._vd_tbl.setHorizontalHeaderLabels(
             ["Due Date","Days","Plate","Year","Make / Model","Customer","Email","Reminder"])
@@ -5710,10 +5876,14 @@ class App(QMainWindow):
         self._vd_tbl.setAlternatingRowColors(True)
         self._vd_tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         hh = self._vd_tbl.horizontalHeader()
-        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
-        self._vd_tbl.setColumnWidth(7, 80)
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        hh.setStretchLastSection(False)
+        for col, w in enumerate([90, 55, 90, 50, 160, 150, 170, 90]):
+            self._vd_tbl.setColumnWidth(col, w)
+        self._vd_vehicle_ids = []
+        self._vd_tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._vd_tbl.customContextMenuRequested.connect(self._vd_context_menu)
+        self._register_table("vd_list", self._vd_tbl)
         lay.addWidget(self._vd_tbl)
 
         def _populate(fkey):
@@ -5732,12 +5902,14 @@ class App(QMainWindow):
                        c.email
                 FROM vehicles v
                 LEFT JOIN customers c ON v.customer_id = c.customer_id
-                WHERE v.deleted = 0 AND v.next_test_due != '' AND v.next_test_due IS NOT NULL
+                WHERE v.deleted = 0 AND v.hidden_from_vd = 0
+                  AND v.next_test_due != '' AND v.next_test_due IS NOT NULL
                   AND v.next_test_due >= ? AND v.next_test_due <= ?
                 ORDER BY v.next_test_due ASC
             """, (lo, hi)).fetchall()
 
             self._vd_tbl.setRowCount(0)
+            self._vd_vehicle_ids = []
             overdue_ct = 0
             for vr in rows:
                 due_str = (vr["next_test_due"] or "").strip()
@@ -5755,6 +5927,7 @@ class App(QMainWindow):
                 email  = vr["email"] or ""
 
                 r_idx = self._vd_tbl.rowCount(); self._vd_tbl.insertRow(r_idx)
+                self._vd_vehicle_ids.append(vr["vehicle_id"])
                 for col, val in enumerate([due_display, days_display, vr["plate"] or "",
                                            str(vr["year"] or ""), mk_mod, cname, email]):
                     item = QTableWidgetItem(val)
@@ -5766,17 +5939,21 @@ class App(QMainWindow):
                     self._vd_tbl.setItem(r_idx, col, item)
 
                 # Bell reminder button (email only on desktop)
-                bell_b = QPushButton("🔔")
+                bell_b = QPushButton("Remind")
                 bell_b.setToolTip("Send email reminder")
-                bell_b.setFixedWidth(50)
-                bell_b.setStyleSheet("border:none; font-size:14pt;")
+                bell_b.setMinimumWidth(80)
+                bell_b.setStyleSheet(
+                    f"QPushButton{{background:{CLR_BLUE};color:white;border:none;"
+                    f"border-radius:4px;padding:4px 8px;font-size:8pt;font-weight:600;}}"
+                    f"QPushButton:hover{{background:{CLR_NAVY};}}"
+                    f"QPushButton:disabled{{background:#CBD5E1;color:#94A3B8;}}")
                 if email:
                     veh_label = f"{vr['year'] or ''} {mk_mod}".strip()
-                    subj = f"Your smog check is coming up — {veh_label}"
+                    subj = f"Your smog check is coming up - {veh_label}"
                     body = (f"Hi {vr['first_name'] or cname},\n\n"
                             f"This is a reminder that your {veh_label} "
                             f"(plate {vr['plate'] or 'N/A'}) is due for a smog check on "
-                            f"{due_display}.\n\nGive us a call to schedule!\n\nBlue Sky Smog")
+                            f"{due_display}.\n\nGive us a call to schedule!\n\nSmogDesk")
                     import urllib.parse as _up
                     mailto = (f"mailto:{_up.quote(email, safe='@')}"
                               f"?subject={_up.quote(subj)}"
@@ -5807,12 +5984,21 @@ class App(QMainWindow):
         lay = QVBoxLayout(w); lay.setContentsMargins(0,0,0,0); lay.setSpacing(0)
         self._stack.addWidget(w)
 
+        # Reports header
+        _rpt_hdr = QWidget()
+        _rpt_hdr.setStyleSheet(f"background:{CLR_SURFACE};border-bottom:1px solid {CLR_BORDER};")
+        _rpt_hdr_h = QHBoxLayout(_rpt_hdr); _rpt_hdr_h.setContentsMargins(20,10,20,10)
+        _rpt_ttl = QLabel("Reports")
+        _rpt_ttl.setStyleSheet(f"color:{CLR_TEXT};font-size:14pt;font-weight:700;background:transparent;border:none;")
+        _rpt_hdr_h.addWidget(_rpt_ttl); _rpt_hdr_h.addStretch()
+        lay.addWidget(_rpt_hdr)
+
         scroll = QScrollArea(); scroll.setWidgetResizable(True)
         body = QWidget(); body_lay = QVBoxLayout(body)
         body_lay.setContentsMargins(14,12,14,12); body_lay.setSpacing(10)
         scroll.setWidget(body); lay.addWidget(scroll)
 
-        # ── Period selector ──────────────────────────────────────────
+        # -- Period selector ------------------------------------------
         period_row = QHBoxLayout(); period_row.setSpacing(10)
         self._rpt_period = "w"   # "w" / "m" / "y"
 
@@ -5833,18 +6019,18 @@ class App(QMainWindow):
         for t in [self._rpt_tab_w, self._rpt_tab_m, self._rpt_tab_y]:
             period_row.addWidget(t)
 
-        # Period picker — prev/next arrows + label button that opens the full picker
+        # Period picker - prev/next arrows + label button that opens the full picker
         period_row.addSpacing(16)
         _nav_style = (
             f"QPushButton{{background:{CLR_CARD};border:1px solid {CLR_BORDER};"
             f"border-radius:6px;color:{CLR_TEXT};padding:4px 10px;font-size:11pt;font-weight:700;}}"
             f"QPushButton:hover{{background:{CLR_BFAINT};}}")
-        _prev_btn = QPushButton("◀"); _prev_btn.setStyleSheet(_nav_style); _prev_btn.setFixedWidth(32)
-        _next_btn = QPushButton("▶"); _next_btn.setStyleSheet(_nav_style); _next_btn.setFixedWidth(32)
+        _prev_btn = QPushButton("<"); _prev_btn.setStyleSheet(_nav_style); _prev_btn.setFixedWidth(32)
+        _next_btn = QPushButton(">"); _next_btn.setStyleSheet(_nav_style); _next_btn.setFixedWidth(32)
         _prev_btn.clicked.connect(self._rpt_prev_period)
         _next_btn.clicked.connect(self._rpt_next_period)
         period_row.addWidget(_prev_btn)
-        self._rpt_period_btn = QPushButton("This Week  ▾")
+        self._rpt_period_btn = QPushButton("This Week  v")
         self._rpt_period_btn.setStyleSheet(
             f"QPushButton{{background:{CLR_CARD};border:1px solid {CLR_BORDER};"
             f"border-radius:6px;color:{CLR_TEXT};padding:4px 14px;font-weight:600;font-size:10pt;}}"
@@ -5853,7 +6039,7 @@ class App(QMainWindow):
         period_row.addWidget(self._rpt_period_btn)
         period_row.addWidget(_next_btn)
         period_row.addStretch()
-        _print_rpt_btn = QPushButton("🖨  Print Report")
+        _print_rpt_btn = QPushButton("  Print Report")
         _print_rpt_btn.setStyleSheet(
             f"QPushButton{{background:{CLR_CARD};border:1px solid {CLR_BORDER};"
             f"border-radius:6px;color:{CLR_TEXT};padding:4px 14px;font-weight:600;font-size:10pt;}}"
@@ -5868,7 +6054,7 @@ class App(QMainWindow):
         self._rpt_anchor = datetime.today()
         body_lay.addLayout(period_row)
 
-        # ── Stat cards ───────────────────────────────────────────────
+        # -- Stat cards -----------------------------------------------
         CARD_STYLE = f"""
             QWidget {{ background:{CLR_CARD}; border:1px solid {CLR_BORDER};
                 border-radius:7px; }}
@@ -5879,7 +6065,7 @@ class App(QMainWindow):
             cl = QVBoxLayout(card); cl.setContentsMargins(12,10,12,10); cl.setSpacing(2)
             lbl = QLabel(label)
             lbl.setStyleSheet(f"color:{CLR_TSUB};font-size:9pt;font-weight:700;letter-spacing:1px;border:none;")
-            val = QLabel("—")
+            val = QLabel("-")
             val.setStyleSheet(f"color:{CLR_TEXT};font-size:18pt;font-weight:700;border:none;")
             sub = QLabel("")
             sub.setStyleSheet(f"color:{CLR_TMUTED};font-size:9pt;border:none;")
@@ -5892,7 +6078,7 @@ class App(QMainWindow):
         _stat_card("AVG / DAY",    "_rpt_s_avg",   "_rpt_s_avg_sub")
         body_lay.addLayout(stat_row)
 
-        # ── Bar chart ────────────────────────────────────────────────
+        # -- Bar chart ------------------------------------------------
         chart_card = QWidget(); chart_card.setStyleSheet(
             f"background:{CLR_CARD};border:1px solid {CLR_BORDER};border-radius:7px;")
         cc_lay = QVBoxLayout(chart_card); cc_lay.setContentsMargins(0,0,0,0); cc_lay.setSpacing(0)
@@ -5909,7 +6095,7 @@ class App(QMainWindow):
         ch_h.addWidget(self._rpt_chart_hint)
         # Legend
         for color, text in [(CLR_BLUE,"Pass"),(CLR_FAIL,"Fail")]:
-            dot = QLabel("●"); dot.setStyleSheet(f"color:{color};font-size:9pt;")
+            dot = QLabel("*"); dot.setStyleSheet(f"color:{color};font-size:9pt;")
             ch_h.addWidget(dot); tl = QLabel(text)
             tl.setStyleSheet(f"color:{CLR_TSUB};font-size:9pt;"); ch_h.addWidget(tl)
         cc_lay.addWidget(ch_hdr)
@@ -5925,7 +6111,7 @@ class App(QMainWindow):
         cc_lay.addWidget(chart_wrap)
         body_lay.addWidget(chart_card)
 
-        # ── Bottom tables row ────────────────────────────────────────
+        # -- Bottom tables row ----------------------------------------
         tbl_row = QHBoxLayout(); tbl_row.setSpacing(10)
 
         def _small_card(title, icon_txt, cols, attr):
@@ -5952,16 +6138,25 @@ class App(QMainWindow):
             tl.addWidget(t); tbl_row.addWidget(tc)
             setattr(self, attr, t)
         _small_card("Top Customers", "#", ["Customer","Tests","Revenue"], "_rpt_cust_tbl")
-        _small_card("By Test Type",  "✓",  ["Test Type","Count","Pass Rate"], "_rpt_tt_tbl")
+        _small_card("By Test Type",  "v",  ["Test Type","Count","Pass Rate"], "_rpt_tt_tbl")
         body_lay.addLayout(tbl_row)
 
-        # ── Quick report buttons ─────────────────────────────────────
+        # -- Quick report buttons -------------------------------------
         qr_grp = QWidget(); qr_grp.setStyleSheet(
             f"background:{CLR_CARD};border:1px solid {CLR_BORDER};border-radius:7px;")
         qr_lay = QVBoxLayout(qr_grp); qr_lay.setContentsMargins(12,10,12,12); qr_lay.setSpacing(8)
         qr_lay.addWidget(QLabel("Quick Reports",
             styleSheet=f"color:{CLR_TEXT};font-weight:700;font-size:11pt;"))
         qr_grid = QGridLayout(); qr_grid.setSpacing(6)
+        _qr_ss = (
+            f"QPushButton{{background:{CLR_CARD};color:{CLR_TSUB};border:1px solid {CLR_BORDER};"
+            f"border-left:4px solid {CLR_BLUE};border-radius:6px;padding:18px 16px;"
+            f"text-align:center;font-size:13pt;font-weight:700;letter-spacing:1px;}}"
+            f"QPushButton:hover{{background:{CLR_BFAINT};border-left:4px solid {CLR_NAVY};"
+            f"color:{CLR_BLUE};}}"
+        )
+        for col in range(3):
+            qr_grid.setColumnStretch(col, 1)
         for i,(lbl_txt,cb) in enumerate([
             ("Daily",                 lambda: self._run_report("daily")),
             ("By Payment Type",       lambda: self._run_report("by_pay")),
@@ -5970,8 +6165,10 @@ class App(QMainWindow):
             ("Account Balances",      lambda: self._run_report("balances")),
             ("Vehicles Due",          lambda: self._run_report("vehicles_due")),
         ]):
-            b = btn(lbl_txt,"secondary"); b.setMinimumHeight(36); b.clicked.connect(cb)
-            qr_grid.addWidget(b, i//4, i%4)
+            b = QPushButton(lbl_txt); b.setMinimumHeight(70)
+            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            b.setStyleSheet(_qr_ss); b.clicked.connect(cb)
+            qr_grid.addWidget(b, i//3, i%3)
         qr_lay.addLayout(qr_grid)
         body_lay.addWidget(qr_grp)
         body_lay.addStretch()
@@ -5979,6 +6176,26 @@ class App(QMainWindow):
     def _on_show_vehicles_due(self):
         self._set_page_title("Vehicles Due")
         self._vd_populate(self._vd_cmb.currentData() or "all")
+
+    def _vd_context_menu(self, pos):
+        row = self._vd_tbl.rowAt(pos.y())
+        if row < 0 or row >= len(self._vd_vehicle_ids): return
+        vid = self._vd_vehicle_ids[row]
+        menu = QMenu(self)
+        act = menu.addAction("Remove from reminder list")
+        chosen = menu.exec(self._vd_tbl.viewport().mapToGlobal(pos))
+        if chosen == act:
+            confirm = QMessageBox.question(
+                self, "Remove from List",
+                "Remove this vehicle from the reminder list?\n"
+                "It will not reappear even after a sync.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if confirm == QMessageBox.StandardButton.Yes:
+                self.db.execute(
+                    "UPDATE vehicles SET hidden_from_vd=1 WHERE vehicle_id=?", (vid,))
+                self.db.commit()
+                self._vd_populate(self._vd_cmb.currentData() or "all")
 
     def _on_show_reports(self):
         self._set_page_title("Reports")
@@ -6019,15 +6236,15 @@ class App(QMainWindow):
         """Print the current report using the system print dialog."""
         from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
         from PyQt6.QtGui import QTextDocument
-        period_lbl = self._rpt_period_btn.text().replace("  ▾", "").strip()
+        period_lbl = self._rpt_period_btn.text().replace("  v", "").strip()
         insp  = getattr(self, '_rpt_s_insp',  None)
         pass_ = getattr(self, '_rpt_s_pass',  None)
         rev   = getattr(self, '_rpt_s_rev',   None)
         avg   = getattr(self, '_rpt_s_avg',   None)
-        insp_val  = insp.text()  if insp  else "—"
-        pass_val  = pass_.text() if pass_ else "—"
-        rev_val   = rev.text()   if rev   else "—"
-        avg_val   = avg.text()   if avg   else "—"
+        insp_val  = insp.text()  if insp  else "-"
+        pass_val  = pass_.text() if pass_ else "-"
+        rev_val   = rev.text()   if rev   else "-"
+        avg_val   = avg.text()   if avg   else "-"
 
         # Build payment type breakdown rows from live DB data for the current period
         pay_rows = ""
@@ -6073,7 +6290,7 @@ class App(QMainWindow):
             )
         except Exception: pass
 
-        # Build truck type table rows — explicit widths for QTextDocument compatibility
+        # Build truck type table rows - explicit widths for QTextDocument compatibility
         TT_W = ["60%", "20%", "20%"]
         tt_rows = ""
         if hasattr(self, '_rpt_tt_tbl'):
@@ -6089,9 +6306,9 @@ class App(QMainWindow):
 
         biz_name = ""
         try:
-            biz_name = get_business_settings(self.db).get("name","").strip() or "Blue Sky Smog"
+            biz_name = get_business_settings(self.db).get("name","").strip() or "SmogDesk"
         except Exception:
-            biz_name = "Blue Sky Smog"
+            biz_name = "SmogDesk"
 
         # Build period breakdown section
         breakdown_html = ""
@@ -6114,8 +6331,8 @@ class App(QMainWindow):
                 s = f"background:{bg};" if bg else ""
                 fw = "font-weight:700;" if bold else ""
                 pl = f"padding-left:{10+indent}px;"
-                cnt_s = str(cnt) if cnt else "—"
-                rev_s = f"${rev/100:,.2f}" if cnt else "—"
+                cnt_s = str(cnt) if cnt else "-"
+                rev_s = f"${rev/100:,.2f}" if cnt else "-"
                 return (f"<tr style='{s}{fw}'>"
                         f"<td width='55%' style='padding:3px 10px;{pl}border-bottom:1px solid #eee;'>{label}</td>"
                         f"<td width='20%' style='padding:3px 10px;border-bottom:1px solid #eee;text-align:right;'>{cnt_s}</td>"
@@ -6158,7 +6375,7 @@ class App(QMainWindow):
                         grand_cnt += wk_cnt; grand_rev += wk_rev
                         bk_rows += (f"<tr style='background:#e8edf5;'>"
                                     f"<td colspan='3' style='padding:4px 10px;font-weight:600;'>"
-                                    f"Week {wk} &nbsp; {cur.strftime('%b %d')} – {wk_end.strftime('%b %d')}</td></tr>")
+                                    f"Week {wk} &nbsp; {cur.strftime('%b %d')} - {wk_end.strftime('%b %d')}</td></tr>")
                         bk_rows += wk_day_rows
                         bk_rows += _bk_total(f"Week {wk} Total", wk_cnt, wk_rev, bg="#f0f4ff")
                     cur = wk_end + timedelta(days=1); wk += 1
@@ -6184,7 +6401,7 @@ class App(QMainWindow):
 
         html = f"""
         <html><body style='font-family:Arial,sans-serif;color:#111;'>
-        <h2 style='margin:0 0 4px;'>{biz_name or 'Blue Sky'} — Report</h2>
+        <h2 style='margin:0 0 4px;'>{biz_name or 'SmogDesk'} - Report</h2>
         <p style='color:#666;margin:0 0 16px;font-size:11pt;'>{period_lbl}</p>
         <table width='100%' style='border-collapse:collapse;margin-bottom:20px;'>
           <tr>
@@ -6233,11 +6450,11 @@ class App(QMainWindow):
     def _rpt_update_period_label(self, start, end):
         period = self._rpt_period
         if period == "w":
-            lbl = f"{start.strftime('%b %d')} – {end.strftime('%b %d, %Y')}  ▾"
+            lbl = f"{start.strftime('%b %d')} - {end.strftime('%b %d, %Y')}  v"
         elif period == "m":
-            lbl = f"{start.strftime('%B %Y')}  ▾"
+            lbl = f"{start.strftime('%B %Y')}  v"
         else:
-            lbl = f"{start.year}  ▾"
+            lbl = f"{start.year}  v"
         self._rpt_period_btn.setText(lbl)
 
     def _rpt_show_period_popup(self):
@@ -6261,7 +6478,7 @@ class App(QMainWindow):
         outer.setContentsMargins(10, 10, 10, 10)
         outer.setSpacing(6)
 
-        # ── WEEK mode: scrollable list of last 8 weeks ──────────────────────
+        # -- WEEK mode: scrollable list of last 8 weeks ----------------------
         if period == "w":
             hdr = QLabel("SELECT A WEEK")
             hdr.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -6287,7 +6504,7 @@ class App(QMainWindow):
                 b.clicked.connect(_pick_week)
                 outer.addWidget(b)
 
-        # ── MONTH mode: year nav + 4×3 grid ────────────────────────────────
+        # -- MONTH mode: year nav + 4Ã—3 grid --------------------------------
         elif period == "m":
             nav_year = [anchor.year]  # mutable container for popup-scoped year nav
 
@@ -6324,11 +6541,11 @@ class App(QMainWindow):
                     month_grid.addWidget(b, row, col)
 
             nav_row = QHBoxLayout()
-            prev_yr = QPushButton("◀"); prev_yr.setProperty("nav", True)
+            prev_yr = QPushButton("<"); prev_yr.setProperty("nav", True)
             year_lbl = QLabel(str(anchor.year))
             year_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             year_lbl.setStyleSheet(f"color:{CLR_TEXT};font-size:10pt;font-weight:600;")
-            next_yr = QPushButton("▶"); next_yr.setProperty("nav", True)
+            next_yr = QPushButton(">"); next_yr.setProperty("nav", True)
 
             def _prev_year():
                 nav_year[0] -= 1; _rebuild_month_grid()
@@ -6343,7 +6560,7 @@ class App(QMainWindow):
             outer.addWidget(month_grid_widget)
             _rebuild_month_grid()
 
-        # ── YEAR mode: decade nav + 3-col grid ─────────────────────────────
+        # -- YEAR mode: decade nav + 3-col grid -----------------------------
         else:
             decade_base = [(anchor.year // 10) * 10]  # mutable
 
@@ -6377,11 +6594,11 @@ class App(QMainWindow):
                     year_grid.addWidget(b, row, col)
 
             nav_row = QHBoxLayout()
-            prev_dec = QPushButton("◀"); prev_dec.setProperty("nav", True)
+            prev_dec = QPushButton("<"); prev_dec.setProperty("nav", True)
             decade_lbl = QLabel(f"{decade_base[0]}s")
             decade_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             decade_lbl.setStyleSheet(f"color:{CLR_TEXT};font-size:10pt;font-weight:600;")
-            next_dec = QPushButton("▶"); next_dec.setProperty("nav", True)
+            next_dec = QPushButton(">"); next_dec.setProperty("nav", True)
 
             def _prev_decade():
                 decade_base[0] -= 10; _rebuild_year_grid()
@@ -6482,11 +6699,11 @@ class App(QMainWindow):
         self._rpt_chart.setData(chart_data)
 
         total_insp = sum(pass_cnt) + sum(fail_cnt)
-        pass_rate  = f"{int(pass_total/total_insp*100)}%" if total_insp else "—"
+        pass_rate  = f"{int(pass_total/total_insp*100)}%" if total_insp else "-"
         rev_str    = f"${total_rev/100:,.2f}"
         # Use total days in the period, not just days that had inspections
         total_days = (end - start).days + 1
-        avg_str    = f"{total_insp/total_days:.1f}" if total_insp else "—"
+        avg_str    = f"{total_insp/total_days:.1f}" if total_insp else "-"
 
         self._rpt_s_insp.setText(str(total_insp))
         self._rpt_s_pass.setText(pass_rate)
@@ -6543,7 +6760,7 @@ class App(QMainWindow):
             for col,val in enumerate([name, str(cnt), f"${cust_rev[name]/100:,.2f}"]):
                 t.setItem(i, col, QTableWidgetItem(val))
 
-        # By test type — pull service names from invoice_lines
+        # By test type - pull service names from invoice_lines
         t2 = self._rpt_tt_tbl; t2.setRowCount(0)
         self._rpt_tt_tbl_sub.setText(period_lbl)
         inv_ids = [r["invoice_id"] for r in rows]
@@ -6587,13 +6804,25 @@ class App(QMainWindow):
         else:
             title_str = f"Report - {rpt_type}  ({begin} to {end})"
 
-        dlg = QDialog(self); dlg.setWindowTitle(title_str); dlg.resize(860,640)
-        lay = QVBoxLayout(dlg)
+        dlg = QDialog(self); dlg.setWindowTitle(title_str); dlg.resize(900,660)
+        dlg.setStyleSheet(f"QDialog{{background:{CLR_SURFACE};}}")
+        lay = QVBoxLayout(dlg); lay.setContentsMargins(16,16,16,16); lay.setSpacing(12)
 
-        # ── Inline date picker bar (date-range reports only) ──────────────
+        # -- Title bar -------------------------------------------------------
+        _title_lbl = QLabel(title_str)
+        _title_lbl.setStyleSheet(f"font-size:14pt;font-weight:700;color:{CLR_TEXT};")
+        lay.addWidget(_title_lbl)
+
+        # -- Inline date picker bar (date-range reports only) --------------
         _begin_de = _end_de = None
         if rpt_type in ("daily", "by_pay", "by_svc", "estimates"):
-            _dbar = QHBoxLayout(); _dbar.setSpacing(8)
+            _dbar_w = QWidget()
+            _dbar_w.setStyleSheet(
+                f"QWidget{{background:{CLR_CARD};border:1px solid {CLR_BORDER};"
+                f"border-radius:7px;}}"
+                f"QLabel{{background:transparent;border:none;color:{CLR_TSUB};font-size:9pt;}}"
+            )
+            _dbar = QHBoxLayout(_dbar_w); _dbar.setContentsMargins(12,8,12,8); _dbar.setSpacing(8)
             if rpt_type == "daily":
                 _dbar.addWidget(QLabel("Date:"))
                 _begin_de = QDateEdit(QDate.fromString(begin, "yyyy-MM-dd"))
@@ -6608,13 +6837,25 @@ class App(QMainWindow):
                 _end_de = QDateEdit(QDate.fromString(end, "yyyy-MM-dd"))
                 _end_de.setCalendarPopup(True); _end_de.setDisplayFormat("MM/dd/yyyy")
                 _dbar.addWidget(_end_de)
-            _go_btn = QPushButton("Go"); _go_btn.setFixedWidth(64); _go_btn.setObjectName("primary")
+            _go_btn = QPushButton("Go"); _go_btn.setFixedWidth(72)
+            _go_btn.setStyleSheet(
+                f"QPushButton{{background:{CLR_BLUE};color:white;border:none;border-radius:5px;"
+                f"padding:5px 14px;font-weight:600;}}"
+                f"QPushButton:hover{{background:{CLR_NAVY};}}")
             _dbar.addWidget(_go_btn); _dbar.addStretch()
-            lay.addLayout(_dbar)
+            lay.addWidget(_dbar_w)
 
         tbl = QTableWidget(0, 0)
         tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         tbl.setAlternatingRowColors(True)
+        tbl.setStyleSheet(
+            f"QTableWidget{{background:{CLR_CARD};border:1px solid {CLR_BORDER};"
+            f"border-radius:7px;gridline-color:{CLR_BORDER};}}"
+            f"QHeaderView::section{{background:{CLR_NAVY};color:white;font-weight:600;"
+            f"font-size:9pt;padding:6px;border:none;}}"
+            f"QTableWidget::item{{padding:4px 8px;}}"
+            f"QTableWidget::item:alternate{{background:{CLR_SURFACE};}}"
+        )
 
         # Column headers set once
         if rpt_type == "by_pay":
@@ -6641,9 +6882,13 @@ class App(QMainWindow):
             tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
 
         summary = QLabel("")
-        summary.setStyleSheet(f"color:{PRIMARY}; font-weight:bold; font-size:11pt;")
+        summary.setStyleSheet(
+            f"color:{CLR_TEXT};font-weight:600;font-size:10pt;"
+            f"background:{CLR_CARD};border:1px solid {CLR_BORDER};border-radius:6px;"
+            f"padding:8px 12px;"
+        )
 
-        # ── Refreshable table population ──────────────────────────────────
+        # -- Refreshable table population ----------------------------------
         def _refresh():
             nonlocal begin, end
             if _begin_de:
@@ -6692,7 +6937,8 @@ class App(QMainWindow):
                            c.first_name, c.last_name, c.company_name, c.phone
                     FROM vehicles v
                     LEFT JOIN customers c ON v.customer_id = c.customer_id
-                    WHERE v.next_test_due != '' AND v.next_test_due IS NOT NULL
+                    WHERE v.deleted = 0 AND v.hidden_from_vd = 0
+                      AND v.next_test_due != '' AND v.next_test_due IS NOT NULL
                       AND v.next_test_due >= ? AND v.next_test_due <= ?
                     ORDER BY v.next_test_due ASC
                 """, (lo, hi)).fetchall()
@@ -6790,10 +7036,12 @@ class App(QMainWindow):
                             elif result in ("FAIL","RETEST"): item.setForeground(QColor(RED))
                         tbl.setItem(r, col, item)
 
+            _new_title = f"Report - {rpt_type}  ({begin} to {end})"
             summary.setText(f"Period: {begin} -> {end}   |   Records: {tbl.rowCount()}   |   Total: ${_total:,.2f}")
-            dlg.setWindowTitle(f"Report - {rpt_type}  ({begin} to {end})")
+            dlg.setWindowTitle(_new_title)
+            _title_lbl.setText(_new_title)
 
-        # ── Vehicles Due filter bar ───────────────────────────────────────
+        # -- Vehicles Due filter bar ---------------------------------------
         if rpt_type == "vehicles_due":
             _vdue_filters = [("30days","30 Days"),("60days","60 Days"),("90days","90 Days")]
             _filter_row = QHBoxLayout()
@@ -6816,8 +7064,12 @@ class App(QMainWindow):
         lay.addWidget(tbl)
         lay.addWidget(summary)
 
-        btn_row = QHBoxLayout()
-        pr_b = QPushButton("Print Report"); pr_b.setObjectName("primary")
+        btn_row = QHBoxLayout(); btn_row.setSpacing(8)
+        pr_b = QPushButton("Print Report")
+        pr_b.setStyleSheet(
+            f"QPushButton{{background:{CLR_BLUE};color:white;border:none;border-radius:6px;"
+            f"padding:8px 20px;font-weight:600;font-size:10pt;}}"
+            f"QPushButton:hover{{background:{CLR_NAVY};}}")
         def _print_rpt():
             from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
             printer = QPrinter(QPrinter.PrinterMode.HighResolution)
@@ -6833,7 +7085,11 @@ class App(QMainWindow):
                 doc = QTextDocument(); doc.setHtml(html)
                 doc.print(printer)
         pr_b.clicked.connect(_print_rpt); btn_row.addWidget(pr_b)
-        cl_b = QPushButton("Close"); cl_b.setObjectName("secondary")
+        cl_b = QPushButton("Close")
+        cl_b.setStyleSheet(
+            f"QPushButton{{background:{CLR_CARD};color:{CLR_TEXT};border:1px solid {CLR_BORDER};"
+            f"border-radius:6px;padding:8px 20px;font-size:10pt;}}"
+            f"QPushButton:hover{{background:{CLR_SURFACE};}}")
         cl_b.clicked.connect(dlg.reject); btn_row.addWidget(cl_b)
         btn_row.addStretch(); lay.addLayout(btn_row)
 
@@ -6842,9 +7098,9 @@ class App(QMainWindow):
         _refresh()
         dlg.exec()
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
     #  SCREEN: SETTINGS
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
     def _stt_tab_style(self, active):
         if active:
@@ -6865,15 +7121,15 @@ class App(QMainWindow):
         root_lay = QVBoxLayout(w); root_lay.setContentsMargins(0,0,0,0); root_lay.setSpacing(0)
         self._stack.addWidget(w)
 
-        # ── Page header ──────────────────────────────────────────────────
-        hdr = QWidget(); hdr.setStyleSheet(f"background:{CLR_CARD};border-bottom:1px solid {CLR_BORDER};")
+        # -- Page header --------------------------------------------------
+        hdr = QWidget(); hdr.setStyleSheet(f"background:{CLR_SURFACE};border-bottom:1px solid {CLR_BORDER};")
         hdr_h = QHBoxLayout(hdr); hdr_h.setContentsMargins(20,10,16,10)
         _ttl = QLabel("Settings")
         _ttl.setStyleSheet(f"color:{CLR_TEXT};font-size:14pt;font-weight:700;background:transparent;")
         hdr_h.addWidget(_ttl); hdr_h.addStretch()
         root_lay.addWidget(hdr)
 
-        # ── Body: left sidebar + right stack ─────────────────────────────
+        # -- Body: left sidebar + right stack -----------------------------
         body = QWidget(); body_lay = QHBoxLayout(body); body_lay.setContentsMargins(0,0,0,0); body_lay.setSpacing(0)
         root_lay.addWidget(body, 1)
         sidebar = QWidget(); sidebar.setFixedWidth(172)
@@ -6893,7 +7149,7 @@ class App(QMainWindow):
             self._stt_btns[key] = b; sb_lay.addWidget(b)
         sb_lay.addStretch()
 
-        # ── Business tab ──────────────────────────────────────────────────
+        # -- Business tab --------------------------------------------------
         t_biz = QScrollArea(); t_biz.setWidgetResizable(True)
         biz_inner = QWidget(); biz_body = QVBoxLayout(biz_inner)
         biz_body.setContentsMargins(28,24,28,24); biz_body.setSpacing(16)
@@ -6961,7 +7217,7 @@ class App(QMainWindow):
         cl.addLayout(sv_row); biz_body.addWidget(card); biz_body.addStretch()
         t_biz.setWidget(biz_inner); self._stt_stack.addWidget(t_biz)  # index 0
 
-        # ── Logo tab ──────────────────────────────────────────────────────
+        # -- Logo tab ------------------------------------------------------
         t_logo = QWidget(); tl_lay = QVBoxLayout(t_logo); tl_lay.setContentsMargins(28,24,28,24); tl_lay.setSpacing(14)
         tl_lay.addWidget(QLabel("Logo", font=QFont("Segoe UI",12,QFont.Weight.Bold)))
         lo_row = QHBoxLayout(); lo_row.addWidget(self._biz_logo)
@@ -7003,7 +7259,7 @@ class App(QMainWindow):
         tl_lay.addWidget(_sv_logo); tl_lay.addStretch()
         self._stt_stack.addWidget(t_logo)  # index 1
 
-        # ── Services tab ──────────────────────────────────────────────────
+        # -- Services tab --------------------------------------------------
         t_svc = QWidget(); ts_lay = QVBoxLayout(t_svc); ts_lay.setContentsMargins(28,24,28,24); ts_lay.setSpacing(10)
         ts_lay.addWidget(QLabel("Services & Prices", font=QFont("Segoe UI",12,QFont.Weight.Bold)))
         ts_lay.addWidget(QLabel("Add or edit the services shown in the invoice dropdown."))
@@ -7031,9 +7287,48 @@ class App(QMainWindow):
         card_fee_form.addRow("Surcharge amount:", self._biz["card_fee"])
         ts_lay.addLayout(card_fee_form)
         save_fee_b = btn("Save Card Fee", "primary"); save_fee_b.clicked.connect(self._save_biz); ts_lay.addWidget(save_fee_b)
+        ts_lay.addSpacing(16)
+        ts_lay.addWidget(QLabel("Payment Types", font=QFont("Segoe UI",10,QFont.Weight.Bold)))
+        ts_lay.addWidget(QLabel("Check types to show in the invoice payment dropdown.",
+                                styleSheet=f"color:{CLR_TSUB};font-size:9pt;"))
+        self._pay_type_table = QTableWidget(0, 2)
+        self._pay_type_table.setHorizontalHeaderLabels(["Payment Type", "Show in Invoice"])
+        self._pay_type_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self._pay_type_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self._pay_type_table.setMaximumHeight(220)
+        self._pay_type_table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
+        _charge_tip = "Required to post charges to account balances. If unchecked, account billing will not be available."
+        for pt in self._load_payment_types():
+            r = self._pay_type_table.rowCount(); self._pay_type_table.insertRow(r)
+            name_item = QTableWidgetItem(pt["name"])
+            if pt["name"].upper() == "CHARGE":
+                name_item.setToolTip(_charge_tip)
+                name_item.setForeground(QColor(CLR_WARN))
+                name_item.setFont(QFont("Segoe UI", -1, QFont.Weight.Bold))
+            self._pay_type_table.setItem(r, 0, name_item)
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            chk.setCheckState(Qt.CheckState.Checked if pt["enabled"] else Qt.CheckState.Unchecked)
+            if pt["name"].upper() == "CHARGE":
+                chk.setToolTip(_charge_tip)
+            self._pay_type_table.setItem(r, 1, chk)
+        ts_lay.addWidget(self._pay_type_table)
+        _charge_note = QLabel("* CHARGE is needed to post charges to account balances. Unchecking it disables account billing.")
+        _charge_note.setStyleSheet(
+            f"color:{CLR_WARN};font-size:9pt;font-weight:600;"
+            f"background:{CLR_WARNBG};border:1px solid #FCD34D;border-radius:5px;padding:6px 10px;")
+        _charge_note.setWordWrap(True)
+        ts_lay.addWidget(_charge_note)
+        pt_btn_h = QHBoxLayout()
+        add_pt_b = btn("Add Type", "secondary"); add_pt_b.clicked.connect(self._pay_type_add_row)
+        del_pt_b = btn("Delete Selected", "danger"); del_pt_b.clicked.connect(self._pay_type_del_row)
+        save_pt_b = btn("Save Payment Types", "primary"); save_pt_b.clicked.connect(self._save_payment_types)
+        pt_btn_h.addWidget(add_pt_b); pt_btn_h.addWidget(del_pt_b); pt_btn_h.addStretch()
+        ts_lay.addLayout(pt_btn_h)
+        ts_lay.addWidget(save_pt_b)
         ts_lay.addStretch(); self._stt_stack.addWidget(t_svc)  # index 2
 
-        # ── Printer tab ───────────────────────────────────────────────────
+        # -- Printer tab ---------------------------------------------------
         t3 = QWidget(); t3_lay = QVBoxLayout(t3); t3_lay.setContentsMargins(28,24,28,24); t3_lay.setSpacing(10)
         t3_lay.addWidget(QLabel("Printer", font=QFont("Segoe UI",12,QFont.Weight.Bold)))
         ps = get_printer_setting(self.db)
@@ -7078,7 +7373,7 @@ class App(QMainWindow):
         save_pr_b = btn("Save Printer Settings","primary"); save_pr_b.clicked.connect(self._save_printer)
         t3_lay.addWidget(save_pr_b); t3_lay.addStretch(); self._stt_stack.addWidget(t3)  # index 3
 
-        # ── Billing tab ───────────────────────────────────────────────────
+        # -- Billing tab ---------------------------------------------------
         t_bill = QWidget(); tb_lay = QVBoxLayout(t_bill); tb_lay.setContentsMargins(28,24,28,24); tb_lay.setSpacing(12)
         tb_lay.addWidget(QLabel("Billing & Subscription", font=QFont("Segoe UI",12,QFont.Weight.Bold)))
         _sub_status_card = QFrame()
@@ -7087,7 +7382,7 @@ class App(QMainWindow):
         try:
             _ss = api_subscription_status() if requests else {}
         except Exception: _ss = {}
-        _plan = (_ss.get("plan") or "—").upper()
+        _plan = (_ss.get("plan") or "-").upper()
         _can  = _ss.get("can_create", True)
         _plan_lbl = QLabel(f"Plan: <b>{_plan}</b>")
         _plan_lbl.setTextFormat(Qt.TextFormat.RichText)
@@ -7096,7 +7391,7 @@ class App(QMainWindow):
         _status_lbl.setStyleSheet(f"color:{CLR_PASS if _can else CLR_FAIL};")
         _ssc_lay.addWidget(_plan_lbl); _ssc_lay.addWidget(_status_lbl)
         tb_lay.addWidget(_sub_status_card)
-        sub_b2 = btn("Subscribe — $39.99/month", "primary"); sub_b2.clicked.connect(self._settings_subscribe)
+        sub_b2 = btn("Subscribe - $39.99/month", "primary"); sub_b2.clicked.connect(self._settings_subscribe)
         tb_lay.addWidget(sub_b2)
         tb_lay.addWidget(QLabel("Already subscribed? Manage or cancel your plan below.",
                                 styleSheet="color:#888;font-size:11px;"))
@@ -7104,18 +7399,18 @@ class App(QMainWindow):
         tb_lay.addWidget(manage_b2)
         tb_lay.addStretch(); self._stt_stack.addWidget(t_bill)  # index 4
 
-        # ── Import tab ────────────────────────────────────────────────────
+        # -- Import tab ----------------------------------------------------
         t_imp = QWidget(); ti_lay = QVBoxLayout(t_imp); ti_lay.setContentsMargins(28,24,28,24); ti_lay.setSpacing(12)
         ti_lay.addWidget(QLabel("Import", font=QFont("Segoe UI",12,QFont.Weight.Bold)))
         ti_lay.addWidget(QLabel("Import customer records from Smog Master (.smc / .csv)"))
         imp_b = btn("Import from Smog Master","primary"); imp_b.clicked.connect(self._smog_master_import)
         ti_lay.addWidget(imp_b); ti_lay.addStretch(); self._stt_stack.addWidget(t_imp)  # index 5
 
-        # ── Sync / Account tab ────────────────────────────────────────────
+        # -- Sync / Account tab --------------------------------------------
         t1 = QWidget(); t1_lay = QVBoxLayout(t1); t1_lay.setContentsMargins(28,24,28,24); t1_lay.setSpacing(10)
         t1_lay.addWidget(QLabel("Sync / Account", font=QFont("Segoe UI",12,QFont.Weight.Bold)))
         saved = load_creds()
-        _acct_info = QLabel(f"Signed in as: <b>{saved.get('username','—')}</b>")
+        _acct_info = QLabel(f"Signed in as: <b>{saved.get('username','-')}</b>")
         _acct_info.setTextFormat(Qt.TextFormat.RichText); t1_lay.addWidget(_acct_info)
         self._s_err = QLabel(""); self._s_err.setStyleSheet("color:red;"); t1_lay.addWidget(self._s_err)
         btn_h = QHBoxLayout()
@@ -7130,7 +7425,7 @@ class App(QMainWindow):
         btn_h.addStretch(); t1_lay.addLayout(btn_h)
         t1_lay.addSpacing(16)
 
-        # ── Account Email ─────────────────────────────────────────────
+        # -- Account Email ---------------------------------------------
         t1_lay.addWidget(QLabel("Account Email", font=QFont("Segoe UI",10,QFont.Weight.Bold)))
         t1_lay.addWidget(QLabel("Used for password resets via the mobile app.", styleSheet="color:#666;font-size:11px"))
         self._acct_email = QLineEdit(); self._acct_email.setPlaceholderText("e.g. you@example.com")
@@ -7142,7 +7437,7 @@ class App(QMainWindow):
         t1_lay.addWidget(ae_save_b)
         t1_lay.addSpacing(16)
 
-        # ── Change Password ───────────────────────────────────────────
+        # -- Change Password -------------------------------------------
         t1_lay.addWidget(QLabel("Change Password", font=QFont("Segoe UI",10,QFont.Weight.Bold)))
         self._cp_cur = QLineEdit(); self._cp_cur.setPlaceholderText("Current password"); self._cp_cur.setEchoMode(QLineEdit.EchoMode.Password)
         self._cp_new = QLineEdit(); self._cp_new.setPlaceholderText("New password (8+ chars)"); self._cp_new.setEchoMode(QLineEdit.EchoMode.Password)
@@ -7157,12 +7452,64 @@ class App(QMainWindow):
         t1_lay.addWidget(cp_save_b)
         t1_lay.addSpacing(16)
 
-        t1_lay.addWidget(QLabel("── Danger Zone ──", font=QFont("Segoe UI",10,QFont.Weight.Bold)))
+        t1_lay.addWidget(QLabel("-- Danger Zone --", font=QFont("Segoe UI",10,QFont.Weight.Bold)))
         clr_b = btn("Clear Local Database","danger"); clr_b.clicked.connect(self._clear_local_db)
         t1_lay.addWidget(clr_b); t1_lay.addStretch()
         self._stt_stack.addWidget(t1)  # index 6
 
         self._stt_idx = {k: i for i, (k, _) in enumerate(_TAB_ITEMS)}
+
+    # -- Payment type helpers -----------------------------------------------
+    def _load_payment_types(self):
+        default = [{"name": n, "enabled": True} for n in
+                   ["CASH","VISA","MASTERCARD","DISCOVER","AMEX","CHECK","CHARGE"]]
+        try:
+            raw = get_setting(self.db, "pay_types_list", "")
+            if raw:
+                return json.loads(raw)
+        except Exception:
+            pass
+        return default
+
+    def _refresh_pay_combo(self):
+        current = self._f_pay.currentText()
+        self._f_pay.blockSignals(True)
+        self._f_pay.clear()
+        self._f_pay.addItem("")
+        for pt in self._load_payment_types():
+            if pt["enabled"]:
+                self._f_pay.addItem(pt["name"])
+        idx = self._f_pay.findText(current)
+        self._f_pay.setCurrentIndex(max(0, idx))
+        self._f_pay.blockSignals(False)
+
+    def _pay_type_add_row(self):
+        from PyQt6.QtWidgets import QInputDialog
+        text, ok = QInputDialog.getText(self, "Add Payment Type", "Payment type name:")
+        if ok and text.strip():
+            r = self._pay_type_table.rowCount(); self._pay_type_table.insertRow(r)
+            self._pay_type_table.setItem(r, 0, QTableWidgetItem(text.strip().upper()))
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            chk.setCheckState(Qt.CheckState.Checked)
+            self._pay_type_table.setItem(r, 1, chk)
+
+    def _pay_type_del_row(self):
+        rows = sorted({i.row() for i in self._pay_type_table.selectedItems()}, reverse=True)
+        for r in rows:
+            self._pay_type_table.removeRow(r)
+
+    def _save_payment_types(self):
+        types = []
+        for r in range(self._pay_type_table.rowCount()):
+            name_item = self._pay_type_table.item(r, 0)
+            chk_item  = self._pay_type_table.item(r, 1)
+            if name_item and name_item.text().strip():
+                enabled = (chk_item.checkState() == Qt.CheckState.Checked) if chk_item else True
+                types.append({"name": name_item.text().strip().upper(), "enabled": enabled})
+        set_setting(self.db, "pay_types_list", json.dumps(types))
+        self._refresh_pay_combo()
+        QMessageBox.information(self, "Saved", "Payment types saved.")
 
     def _svc_add_row(self):
         _r = self._svc_table.rowCount(); self._svc_table.insertRow(_r)
@@ -7378,24 +7725,24 @@ class App(QMainWindow):
         set_setting(self.db,"printer_setting",json.dumps(ps))
         QMessageBox.information(self,"Saved","Printer settings saved.")
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
     #  SCREEN: CUSTOMERS
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
     _AVATAR_COLORS = ["#4E9EDF","#2A9D8F","#D4776E","#9B72CF","#E9944A","#5E8F6E","#7B68EE","#3A7CA5"]
 
     def _avatar_color(self, name):
         return self._AVATAR_COLORS[abs(hash(name or "?")) % len(self._AVATAR_COLORS)]
 
-    def _make_avatar_widget(self, initials, name, email, bg):
-        w = QWidget(); w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    def _make_avatar_widget(self, initials, name, email, bg, row_bg="#FFFFFF"):
+        w = QWidget(); w.setStyleSheet(f"background:{row_bg};")
         h = QHBoxLayout(w); h.setContentsMargins(10,4,8,4); h.setSpacing(10)
-        av = QLabel(initials); av.setFixedSize(34,34); av.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        av.setStyleSheet(f"background:{bg};border-radius:17px;color:white;font-weight:700;font-size:9pt;")
+        av = QLabel(initials); av.setFixedSize(36,36); av.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        av.setStyleSheet(f"background:{bg};border-radius:18px;color:white;font-weight:700;font-size:9pt;")
         h.addWidget(av)
-        txt = QWidget(); txt.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        txt = QWidget(); txt.setStyleSheet(f"background:{row_bg};")
         tl = QVBoxLayout(txt); tl.setContentsMargins(0,0,0,0); tl.setSpacing(1)
-        nl = QLabel(name); nl.setStyleSheet(f"font-weight:600;font-size:10pt;color:{CLR_TEXT};background:transparent;")
+        nl = QLabel(name); nl.setStyleSheet(f"font-weight:700;font-size:11pt;color:{CLR_TEXT};background:transparent;")
         el = QLabel(email); el.setStyleSheet(f"font-size:8pt;color:{CLR_TSUB};background:transparent;")
         tl.addWidget(nl); tl.addWidget(el); h.addWidget(txt, 1)
         return w
@@ -7405,8 +7752,8 @@ class App(QMainWindow):
         lay = QVBoxLayout(w); lay.setContentsMargins(0,0,0,0); lay.setSpacing(0)
         self._stack.addWidget(w)
 
-        # ── Page header ──────────────────────────────────────────────────
-        hdr = QWidget(); hdr.setStyleSheet(f"background:{CLR_CARD};border-bottom:1px solid {CLR_BORDER};")
+        # -- Page header --------------------------------------------------
+        hdr = QWidget(); hdr.setStyleSheet(f"background:{CLR_SURFACE};border-bottom:1px solid {CLR_BORDER};")
         hdr_h = QHBoxLayout(hdr); hdr_h.setContentsMargins(20,10,16,10); hdr_h.setSpacing(12)
         _ttl = QLabel("Customers")
         _ttl.setStyleSheet(f"color:{CLR_TEXT};font-size:14pt;font-weight:700;background:transparent;")
@@ -7431,7 +7778,7 @@ class App(QMainWindow):
         hdr_h.addWidget(add_b)
         lay.addWidget(hdr)
 
-        # ── Filter pills ─────────────────────────────────────────────────
+        # -- Filter pills -------------------------------------------------
         pills_bar = QWidget()
         pills_bar.setStyleSheet(f"background:{CLR_SURFACE};border-bottom:1px solid {CLR_BORDER};")
         pills_h = QHBoxLayout(pills_bar); pills_h.setContentsMargins(20,6,16,6); pills_h.setSpacing(6)
@@ -7446,20 +7793,20 @@ class App(QMainWindow):
         pills_h.addStretch()
         lay.addWidget(pills_bar)
 
-        # ── Table ─────────────────────────────────────────────────────────
-        cols = ["Customer","Phone","Inspections","Last inspection","Last result","Discount"]
+        # -- Table ---------------------------------------------------------
+        cols = ["Customer","Phone","Inspections","Last inspection","Discount"]
         self._cust_table = QTableWidget(0, len(cols)); self._cust_table.setHorizontalHeaderLabels(cols)
         self._cust_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._cust_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._cust_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self._cust_table.verticalHeader().setVisible(False)
         self._cust_table.setShowGrid(False)
-        self._cust_table.verticalHeader().setDefaultSectionSize(54)
+        self._cust_table.verticalHeader().setDefaultSectionSize(58)
         self._register_table("customers", self._cust_table)
         self._cust_table.doubleClicked.connect(self._cust_view)
         self._cust_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._cust_table.customContextMenuRequested.connect(self._cust_context_menu)
-        for i, w2 in enumerate([0, 110, 90, 120, 100, 90]):
+        for i, w2 in enumerate([0, 120, 100, 130, 100]):
             if w2: self._cust_table.setColumnWidth(i, w2)
         lay.addWidget(self._cust_table)
         self._cust_ids = []
@@ -7478,7 +7825,7 @@ class App(QMainWindow):
         pill = getattr(self, '_cust_pill', 'all')
         cutoff30 = (datetime.today() - timedelta(days=30)).strftime("%Y-%m-%d")
 
-        # Three fast flat queries — no correlated subqueries
+        # Three fast flat queries - no correlated subqueries
         all_rows = self.db.execute(
             "SELECT * FROM customers ORDER BY UPPER(COALESCE(NULLIF(TRIM(company_name),''), TRIM(first_name||' '||last_name)))"
         ).fetchall()
@@ -7526,37 +7873,35 @@ class App(QMainWindow):
                 continue
             r = self._cust_table.rowCount(); self._cust_table.insertRow(r)
             self._cust_ids.append(cid)
+            row_bg = CLR_SURFACE if r % 2 == 1 else "#FFFFFF"
+            _font = QFont("Segoe UI", 11, QFont.Weight.Bold)
             words = display_name.split()
             initials = (words[0][0] + (words[-1][0] if len(words)>1 else "")).upper() if words else "?"
             bg = self._avatar_color(display_name)
-            self._cust_table.setCellWidget(r, 0, self._make_avatar_widget(initials, display_name, email, bg))
-            self._cust_table.setItem(r, 0, QTableWidgetItem(""))  # blank — widget renders on top
-            self._cust_table.setItem(r, 1, QTableWidgetItem(phone))
-            cnt_item = QTableWidgetItem(str(inv_count or 0))
+            self._cust_table.setCellWidget(r, 0, self._make_avatar_widget(initials, display_name, email, bg, row_bg))
+            self._cust_table.setItem(r, 0, QTableWidgetItem(""))  # blank - widget renders on top
+            ph_item = QTableWidgetItem(phone); ph_item.setFont(_font)
+            ph_item.setBackground(QColor(row_bg))
+            self._cust_table.setItem(r, 1, ph_item)
+            cnt_item = QTableWidgetItem(str(inv_count or 0)); cnt_item.setFont(_font)
             cnt_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+            cnt_item.setBackground(QColor(row_bg))
             self._cust_table.setItem(r, 2, cnt_item)
             try: last_d = datetime.strptime(last_inv, "%Y-%m-%d").strftime("%m/%d/%y") if last_inv else ""
             except Exception: last_d = last_inv or ""
-            dt_item = QTableWidgetItem(last_d)
+            dt_item = QTableWidgetItem(last_d); dt_item.setFont(_font)
             dt_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+            dt_item.setBackground(QColor(row_bg))
             self._cust_table.setItem(r, 3, dt_item)
-            res_item = QTableWidgetItem(last_res)
-            res_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-            if last_res == "PASS":
-                res_item.setForeground(QColor(CLR_PASS)); res_item.setBackground(QColor(CLR_PASSBG))
-                res_item.setFont(QFont("Segoe UI", _zsz, QFont.Weight.Bold))
-            elif last_res in ("FAIL","RETEST"):
-                res_item.setForeground(QColor(CLR_FAIL)); res_item.setBackground(QColor(CLR_FAILBG))
-                res_item.setFont(QFont("Segoe UI", _zsz, QFont.Weight.Bold))
-            self._cust_table.setItem(r, 4, res_item)
             disc = row["discount_percent"] or 0.0
             try: disc_type = (row["discount_type"] or "LINE").upper()
             except Exception: disc_type = "LINE"
-            disc_str = (f"{disc:.0f}% / total" if disc_type == "TOTAL" else f"{disc:.0f}% / line") if disc else "—"
-            disc_item = QTableWidgetItem(disc_str)
+            disc_str = (f"{disc:.0f}% / total" if disc_type == "TOTAL" else f"{disc:.0f}% / line") if disc else "-"
+            disc_item = QTableWidgetItem(disc_str); disc_item.setFont(_font)
             disc_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+            disc_item.setBackground(QColor(row_bg))
             if disc: disc_item.setForeground(QColor(CLR_PASS))
-            self._cust_table.setItem(r, 5, disc_item)
+            self._cust_table.setItem(r, 4, disc_item)
             shown += 1
         self._cust_table.setUpdatesEnabled(True)
         self._cust_count_lbl.setText(f"{shown} customers")
@@ -7584,7 +7929,7 @@ class App(QMainWindow):
         """, (cid,)).fetchall()
 
         name = f"{cust['first_name']} {cust['last_name']}".strip() or cust['company_name'] or "-"
-        dlg = QDialog(self); dlg.setWindowTitle(f"Customer — {name}"); dlg.resize(820, 620)
+        dlg = QDialog(self); dlg.setWindowTitle(f"Customer - {name}"); dlg.resize(820, 620)
         lay = QVBoxLayout(dlg); lay.setSpacing(8)
 
         # Header info
@@ -7593,11 +7938,11 @@ class App(QMainWindow):
         if cust['email']: parts.append(f"Email: {cust['email']}")
         addr = " ".join(filter(None,[cust['address'],cust['city'],cust['state'],cust['zip']]))
         if addr: parts.append(addr)
-        info = QLabel(f"<b>{name}</b>" + (f" — {cust['company_name']}" if cust['company_name'] and cust['company_name'] != name else "") +
-                      ("<br>" + "  ·  ".join(parts) if parts else ""))
+        info = QLabel(f"<b>{name}</b>" + (f" - {cust['company_name']}" if cust['company_name'] and cust['company_name'] != name else "") +
+                      ("<br>" + "  .  ".join(parts) if parts else ""))
         info.setTextFormat(Qt.TextFormat.RichText); lay.addWidget(info)
 
-        # — Invoices section —
+        # - Invoices section -
         inv_lbl = QLabel("Invoices"); inv_lbl.setStyleSheet("font-weight:700;font-size:10pt;")
         lay.addWidget(inv_lbl)
         tbl = QTableWidget(0,5); tbl.setHorizontalHeaderLabels(["#","Date","Type","Amount","Payment"])
@@ -7622,7 +7967,7 @@ class App(QMainWindow):
         total_lbl = QLabel(f"Total invoiced: ${total:,.2f}")
         total_lbl.setStyleSheet("font-weight:600;"); lay.addWidget(total_lbl)
 
-        # — Vehicles section —
+        # - Vehicles section -
         veh_lbl = QLabel("Vehicles"); veh_lbl.setStyleSheet("font-weight:700;font-size:10pt;margin-top:4px;")
         lay.addWidget(veh_lbl)
         vtbl = QTableWidget(0, 5); vtbl.setHorizontalHeaderLabels(["Plate","VIN","Year","Make / Model","Due By"])
@@ -7636,7 +7981,7 @@ class App(QMainWindow):
             r = vtbl.rowCount(); vtbl.insertRow(r)
             mk_mod = " ".join(filter(None,[v["make"], v["model"]]))
             due_str = (v["next_test_due"] or "").strip()
-            due_display = "—"; due_color = None
+            due_display = "-"; due_color = None
             if due_str:
                 try:
                     due_date = datetime.strptime(due_str, "%Y-%m-%d").date()
@@ -7646,7 +7991,7 @@ class App(QMainWindow):
                     elif days_left <= 30: due_color = QColor("#D97706")
                     else: due_color = QColor("#1E7E34")
                 except ValueError: pass
-            for col, val in enumerate([v["plate"] or "—", v["vin"] or "", str(v["year"] or ""), mk_mod, due_display]):
+            for col, val in enumerate([v["plate"] or "-", v["vin"] or "", str(v["year"] or ""), mk_mod, due_display]):
                 item = QTableWidgetItem(val)
                 if col == 4 and due_color: item.setForeground(due_color)
                 vtbl.setItem(r, col, item)
@@ -7787,7 +8132,7 @@ class App(QMainWindow):
         # Phone auto-format on leave
         def _fmt_ph(): fields["phone"].setText(format_phone(fields["phone"].text()))
         fields["phone"].editingFinished.connect(_fmt_ph)
-        # ZIP → city/state lookup
+        # ZIP â†’ city/state lookup
         def _zip_lookup_dlg(z):
             if len(z)!=5 or not z.isdigit(): return
             if fields["city"].text().strip() and fields["state"].text().strip(): return
@@ -7834,7 +8179,7 @@ class App(QMainWindow):
         # Phone auto-format on leave
         def _fmt_ph_new(): fields["phone"].setText(format_phone(fields["phone"].text()))
         fields["phone"].editingFinished.connect(_fmt_ph_new)
-        # ZIP → city/state lookup
+        # ZIP â†’ city/state lookup
         def _zip_lookup_new(z):
             if len(z)!=5 or not z.isdigit(): return
             if fields["city"].text().strip() and fields["state"].text().strip(): return
@@ -7965,9 +8310,9 @@ class App(QMainWindow):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._refresh_customers()
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
     #  SCREEN: ADMIN BACKEND  (master account only)
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
     def _master_api(self, method, path, **kwargs):
         """Make a master-authenticated API call."""
@@ -7981,6 +8326,14 @@ class App(QMainWindow):
         w = QWidget(); self._screens["admin"] = w
         lay = QVBoxLayout(w); lay.setContentsMargins(0,0,0,0); lay.setSpacing(0)
         self._stack.addWidget(w)
+
+        _adm_hdr = QWidget()
+        _adm_hdr.setStyleSheet(f"background:{CLR_SURFACE};border-bottom:1px solid {CLR_BORDER};")
+        _adm_hdr_h = QHBoxLayout(_adm_hdr); _adm_hdr_h.setContentsMargins(20,10,20,10)
+        _adm_ttl = QLabel("Admin Dashboard")
+        _adm_ttl.setStyleSheet(f"color:{CLR_TEXT};font-size:14pt;font-weight:700;background:transparent;border:none;")
+        _adm_hdr_h.addWidget(_adm_ttl); _adm_hdr_h.addStretch()
+        lay.addWidget(_adm_hdr)
 
         body = QWidget(); body_lay = QVBoxLayout(body)
         body_lay.setContentsMargins(16,16,16,16); body_lay.setSpacing(12)
@@ -8161,9 +8514,9 @@ class App(QMainWindow):
             QMessageBox.critical(self,"Error",f"Failed:\n{e}")
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 #  ENTRY POINT
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Âââ€¢Â
 
 def _hide_console():
     """Hide the Windows console window and remove it from the taskbar."""
@@ -8192,7 +8545,7 @@ class _UpdateWorker(QObject):
     def check(self):
         try:
             req = urllib.request.Request(_UPDATE_API,
-                headers={"User-Agent": "BlueSkyDesktop"})
+                headers={"User-Agent": "SmogDesk"})
             with urllib.request.urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read())
             tag = data.get("tag_name", "").lstrip("v")
@@ -8216,7 +8569,7 @@ def _check_for_update(parent=None):
         msg.setWindowTitle("Update Available")
         msg.setIcon(QMessageBox.Icon.Information)
         msg.setText(
-            f"<b>Blue Sky Smog v{tag} is available.</b><br><br>"
+            f"<b>SmogDesk v{tag} is available.</b><br><br>"
             f"You are running v{APP_VERSION}.<br>"
             "Download the new installer to update."
         )
